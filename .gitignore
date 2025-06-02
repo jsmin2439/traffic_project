@@ -1,0 +1,11 @@
+# 가상환경(venv) 디렉터리
+.venv/
+venv/
+env/
+__pycache__/
+
+.idea/
+0_raw/
+1_lake/
+2_sumoprep/
+3_tensor/

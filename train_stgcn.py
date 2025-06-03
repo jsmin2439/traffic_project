@@ -162,7 +162,7 @@ for epoch in range(1, args.epochs + 1):
     if args.sched == 'plateau':
         scheduler.step(val_loss)  # type: ignore
     else:
-        scheduler.step()
+        scheduler.step()    # type: ignore
 
     # ─────────────────────────────────────────────────────────────────────────
     # E) 체크포인트 저장

@@ -22,6 +22,7 @@ Residual + ST‐GCN 하이브리드 모델 학습 스크립트
 """
 
 import os
+from pathlib import Path
 import argparse
 import numpy as np
 import torch
@@ -33,13 +34,14 @@ from data_loader import get_dataloaders
 # 전체 정규화된 윈도우 배열을 메모리에 미리 로드 (Rolling‑prediction 용)
 # ───────────────────────────────────────────────────────────────────────────
 import numpy as _np
-all_X_global = _np.load(os.path.join('3_tensor', 'windows', 'all_X.npy'))  # (num_windows, 12, 1370, C_in)
-all_Y_global = _np.load(os.path.join('3_tensor', 'windows', 'all_Y.npy'))  # (num_windows, 1370, 8)
+all_X_global = _np.load(Path('3_tensor') / 'windows' / 'all_X.npy')  # (num_windows, 12, 1370, C_in)
+all_Y_global = _np.load(Path('3_tensor') / 'windows' / 'all_Y.npy')  # (num_windows, 1370, 8)
 num_windows = all_X_global.shape[0]
 # ───────────────────────────────────────────────────────────────────────────
 
 from model.res_stgcn_model import ResSTGCN
 from train_utils import EarlyStopping, ensure_dir, print_memory_usage
+from tqdm import tqdm
 
 # ┌──────────────────────────────────────────────────────────────────────────┐
 # │ 0. ArgumentParser 설정                                                    │
@@ -82,11 +84,11 @@ train_loader, val_loader, test_loader = get_dataloaders(batch_size=args.batch)
 # │ 3. 정규화된 인접행렬 A 로드                                                │
 # └──────────────────────────────────────────────────────────────────────────┘
 import numpy as _np
-adj_norm_path = os.path.join('3_tensor', 'adjacency', 'A_lane.npy')
-if not os.path.exists(adj_norm_path):
+adj_norm_path = Path('3_tensor') / 'adjacency' / 'A_lane.npy'
+if not adj_norm_path.exists():
     raise FileNotFoundError(f"정규화된 A_lane.npy 파일을 찾을 수 없습니다: {adj_norm_path}")
 # 미리 정규화된 adjacency를 로드
-A_norm = torch.from_numpy(np.load(adj_norm_path)).float().to(device)  # (1370, 1370)
+A_norm = torch.from_numpy(np.load(str(adj_norm_path))).float().to(device)  # (1370, 1370)
 
 # ┌──────────────────────────────────────────────────────────────────────────┐
 # │ 4. 모델 생성                                                               │
@@ -134,7 +136,7 @@ for epoch in range(1, args.epochs + 1):
     # ─────────────────────────────────────────────────────────────────────────
     # A) Training
     # ─────────────────────────────────────────────────────────────────────────
-    for x_batch, y_batch, idx_batch in train_loader:
+    for x_batch, y_batch, idx_batch in tqdm(train_loader, ncols=80, desc=f"[Epoch {epoch}/{args.epochs}] Train"):
         # x_batch: (B, 9, 12, 1370), y_batch: (B, 8, 1370)
         x_batch = x_batch.to(device)   # (B, 9, 12, 1370)
         y_batch = y_batch.to(device)   # (B, 8, 1370)
@@ -211,7 +213,7 @@ for epoch in range(1, args.epochs + 1):
     val_loss_meter = 0.0
     n_val_batches = 0
     with torch.no_grad():
-        for x_batch, y_batch in val_loader:
+        for x_batch, y_batch, idx_batch in tqdm(val_loader, ncols=80, desc=f"[Epoch {epoch}/{args.epochs}] Val"):
             x_batch = x_batch.to(device)
             y_batch = y_batch.to(device)
             B = x_batch.shape[0]
@@ -255,11 +257,11 @@ for epoch in range(1, args.epochs + 1):
         break
 
     if args.sched == 'plateau':
-        scheduler_stgcn.step(val_loss)
-        scheduler_reslstm.step(val_loss)
+        scheduler_stgcn.step(val_loss)  # type: ignore
+        scheduler_reslstm.step(val_loss)  # type: ignore
     else:
-        scheduler_stgcn.step()
-        scheduler_reslstm.step()
+        scheduler_stgcn.step(val_loss)       # type: ignore
+       scheduler_reslstm.step(val_loss)      # type: ignore
 
     # ─────────────────────────────────────────────────────────────────────────
     # E) 체크포인트 저장

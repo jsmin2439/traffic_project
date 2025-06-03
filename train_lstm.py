@@ -21,6 +21,7 @@ import torch.optim as optim
 from data_loader import get_dataloaders
 from model.lstm_model import BasicLSTM
 from train_utils import EarlyStopping, ensure_dir, print_memory_usage
+from tqdm import tqdm
 
 # ┌──────────────────────────────────────────────────────────────────────────┐
 # │ 0. ArgumentParser 설정                                                    │
@@ -84,7 +85,7 @@ for epoch in range(1, args.epochs + 1):
     # ─────────────────────────────────────────────────────────────────────────
     # A) Training
     # ─────────────────────────────────────────────────────────────────────────
-    for x_batch, y_batch, _ in train_loader:
+    for x_batch, y_batch, _ in tqdm(train_loader, ncols=80, desc=f"[Epoch {epoch}/{args.epochs}] Train"):
         # x_batch: (B, C, 12, 1370), y_batch: (B, 8, 1370)
         x_batch = x_batch.to(device)    # (B, C_in, 12, 1370)
         y_batch = y_batch.to(device)    # (B,  8, 1370)
@@ -123,7 +124,7 @@ for epoch in range(1, args.epochs + 1):
     val_loss_meter = 0.0
     n_val_batches = 0
     with torch.no_grad():
-        for x_batch, y_batch, _ in val_loader:
+        for x_batch, y_batch, _ in tqdm(val_loader, ncols=80, desc=f"[Epoch {epoch}/{args.epochs}] Val"):
             x_batch = x_batch.to(device)
             y_batch = y_batch.to(device)
             x_lstm = x_batch[:, :8, :, :].permute(0, 2, 3, 1).contiguous()

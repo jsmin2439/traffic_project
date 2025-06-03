@@ -16,6 +16,7 @@ import os
 import numpy as np
 import torch
 from torch.utils.data import Dataset, DataLoader
+from typing import Optional
 
 class TrafficDataset(Dataset):
     """
@@ -79,7 +80,7 @@ class TrafficDataset(Dataset):
 
         return x_tensor, y_tensor, idx
 
-def get_dataloaders(batch_size: int = 4, num_workers: int = None, pin_memory: bool = True):
+def get_dataloaders(batch_size: int = 4, num_workers: Optional[int] = None, pin_memory: bool = True):
     """
     ────────────────────────────────────────────────────────────────────────────
     모든 모델(전통적 LSTM, ST-GCN, T-GCN, DCRNN, ResLSTM 등)이 공통으로 사용하는

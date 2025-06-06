@@ -1,0 +1,29 @@
+# traffic_project/eval/eval_config.yaml
+
+# ────────────────────────────────────────
+# 배치 사이즈, 데이터 경로, 체크포인트 경로 등
+batch: 16
+
+# 3_tensor 폴더(윈도우·정규화 데이터)가 있는 상위 디렉터리 경로
+tensor_dir: "3_tensor"
+
+# 각 모델별로 평가에 사용할 파이썬 체크포인트(.pt) 경로
+# (절대 경로 혹은 eval_config.yaml 파일 위치를 기준으로 한 상대 경로 모두 가능)
+ckpt:
+  lstm:      "checkpoints_lstm/lstm_epoch040.pt"
+  stgcn:     "checkpoints_stgcn/stgcn_epoch040.pt"
+  resstgcn:  "checkpoints_resstgcn/resstgcn_epoch040.pt"
+
+# (선택) 에폭별 분석을 할 경우, 체크포인트 템플릿과 에폭 리스트 지정
+#  - ckpt_tpl_*: "…/checkpoints_lstm/lstm_epoch{epoch:03d}.pt" 와 같이 사용
+#  - epoch_list: 분석할 epoch 번호 목록(쉼표 구분)
+epoch_list: [5, 10, 15, 20, 25, 30, 35, 40]
+ckpt_tpl_lstm:      "checkpoints_lstm/lstm_epoch{epoch:03d}.pt"
+ckpt_tpl_stgcn:     "checkpoints_stgcn/stgcn_epoch{epoch:03d}.pt"
+ckpt_tpl_resstgcn:  "checkpoints_resstgcn/resstgcn_epoch{epoch:03d}.pt"
+
+# 비교용 노드(시계열 예시 등에서 사용할 특정 노드 ID)
+compare_node: 42
+
+# (run_eval.py에서 덮어쓰이므로, 보통 null 혹은 빈 문자열로 둬도 무방)
+save_dir: null

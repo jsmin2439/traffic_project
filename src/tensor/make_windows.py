@@ -53,6 +53,7 @@ os.makedirs(SAVE_DIR, exist_ok=True)
 
 all_X = []  # List of input windows (각 원소 shape=(12,1370,15))
 all_Y = []  # List of target windows (각 원소 shape=(1370,8))
+all_DATE = []   # ← 윈도우별 DATE 메타정보를 담을 리스트
 
 for DATE in DATE_LIST:
     date_str = str(DATE)
@@ -82,12 +83,14 @@ for DATE in DATE_LIST:
         
         all_X.append(x_win)
         all_Y.append(y_next)
+        all_DATE.append(DATE)
 
 # (4) 리스트 → NumPy 배열로 변환
 #     - all_X: shape = (총 윈도우 개수, 12, 1370, 15)
 #     - all_Y: shape = (총 윈도우 개수, 1370, 8)
 all_X = np.stack(all_X, axis=0)
 all_Y = np.stack(all_Y, axis=0)
+all_DATE = np.array(all_DATE)         # shape=(총윈도우,)
 
 
 # ┌──────────────────────────────────────────────────────────────────────────┐
@@ -144,5 +147,6 @@ print("\n✅ 슬라이딩 윈도우 (X, Y) 생성 및 검증 완료 ✓")
 # (1) NumPy 파일로 저장
 np.save(os.path.join(SAVE_DIR, 'all_X.npy'), all_X)
 np.save(os.path.join(SAVE_DIR, 'all_Y.npy'), all_Y)
+np.save(os.path.join(SAVE_DIR, 'all_DATE.npy'), all_DATE)  # ← DATE 배열도 저장
 
-print(f"\n▶ all_X.npy, all_Y.npy 파일이 '{SAVE_DIR}' 폴더에 저장되었습니다.")
+print(f"\n▶ all_X.npy, all_Y.npy, all_DATE.npy 파일이 '{SAVE_DIR}' 폴더에 저장되었습니다.")

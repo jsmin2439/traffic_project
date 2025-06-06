@@ -9,6 +9,7 @@ __pycache__/
 1_lake/
 2_sumoprep/
 3_tensor/
+5_train/
 
 # Created by https://www.toptal.com/developers/gitignore/api/macos
 # Edit at https://www.toptal.com/developers/gitignore?templates=macos

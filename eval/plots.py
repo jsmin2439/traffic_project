@@ -33,6 +33,9 @@ import pandas as pd
 import matplotlib.pyplot as plt
 import seaborn as sns
 from scipy import stats
+import gc
+import random
+from scipy import stats
 
 # 한글 폰트 설정 (필요시)
 # plt.rcParams['font.family'] = 'Malgun Gothic'
@@ -55,11 +58,32 @@ def plot_global_bar(csv_path, out_png):
     
     # Figure, Axes 생성: 하나의 row에 n_metrics개의 subplot
     fig, axes = plt.subplots(1, n_metrics, figsize=(4*n_metrics, 4))
+
+    colors = sns.color_palette('Set2', n_colors=df['model'].nunique())
     
     for idx, metric in enumerate(metrics):
         ax = axes[idx]
         # seaborn barplot 사용: x축=model, y축=metric
-        sns.barplot(data=df, x='model', y=metric, ax=ax, palette='Set2')
+        # 색상을 직접 지정하려면 color=가 아닌 colors= 리스트를 넘겨주세요.
+        sns.barplot(
+            data=df,
+            x='model',
+            y=metric,
+            ax=ax,
+            palette=None,                   # palette 대신
+            color=None,                     # color=None 으로 두고
+            dodge=False,                    # hue를 사용하지 않음
+            ci=None,                        # 에러바 불필요 시 None
+            estimator=np.mean,              # 기본 동작: group별 평균
+            errcolor=None,                  # 에러바 없애기
+            facecolor=None,                 # 막대 채우기(자동 배정)
+            edgecolor=None,                 # 테두리 없음
+            linewidth=0                      # 테두리 두께 0
+        )
+        # 위 sns.barplot은 내부에서 기본 색상을 쓰므로, 아래와 같이 수동으로 색을 지정해 줍니다.
+        for bar, c in zip(ax.patches, colors):
+            bar.set_color(c)
+
         ax.set_title(metric)
         ax.set_xlabel('')
         ax.set_ylabel(metric)
@@ -144,8 +168,8 @@ def plot_node_channel_heatmap(results_dict, out_png, normalize: bool = False):
     rmse_matrices = {}
     
     for m in models:
-        preds = results_dict[m]['preds']  # shape: (M_sel, 1370, 8)
-        trues = results_dict[m]['trues']
+        preds = results_dict[m]['preds_orig']
+        trues = results_dict[m]['trues_orig']
         
         # M_sel 윈도우와 채널별 T 차원 평균 오차 계산: (1370,8)
         # step1: 차이 계산
@@ -175,7 +199,7 @@ def plot_node_channel_heatmap(results_dict, out_png, normalize: bool = False):
     cbar = fig.colorbar(im, ax=axes.ravel().tolist(), shrink=0.6, orientation='vertical')
     cbar.set_label('RMSE' + (' (Normalized)' if normalize else ''))
     fig.suptitle('Node × Channel RMSE Heatmap', fontsize=16)
-    fig.tight_layout(rect=[0, 0, 1, 0.96])
+    fig.subplots_adjust(top=0.90)   # ← tight_layout 대신 subplots_adjust로 제목 공간 확보
     fig.savefig(out_png, dpi=300)
     plt.close(fig)
 
@@ -195,8 +219,8 @@ def plot_window_rmse_trend(results_dict, out_png, window_indices=None):
     # 각 모델별 윈도우 RMSE 계산: (M_sel,)
     window_rmse = {}
     for m in models:
-        preds = results_dict[m]['preds']  # (M_sel,1370,8)
-        trues = results_dict[m]['trues']
+        preds = results_dict[m]['preds_orig']
+        trues = results_dict[m]['trues_orig']
         diff = preds - trues
         # 윈도우별 RMSE: 각 윈도우의 (1370×8) 평균 제곱근
         rmse_per_window = np.sqrt(np.mean(diff**2, axis=(1,2)))  # (M_sel,)
@@ -411,8 +435,15 @@ def plot_speed_level_bar(results_dict, out_png):
     
     # Grouped Bar Chart: x축=speed_level, hue=model, y축=평균 RMSE
     plt.figure(figsize=(8, 6))
-    sns.barplot(data=df_sp, x='speed_level', y='rmse', hue='model', palette='Set2', ci='sd')
-    plt.title('Speed Level-wise RMSE by Model')
+    sns.barplot(
+        data=df_sp,
+        x='speed_level',
+        y='rmse',
+        hue='model',
+        palette='Set2',
+        errorbar='sd'        # ← ci='sd' 대신 errorbar='sd'로 변경
+    )
+
     plt.xlabel('Speed Level')
     plt.ylabel('RMSE per Window')
     plt.legend(title='Model')
@@ -433,16 +464,36 @@ def plot_error_histogram_kde(results_dict, out_png, bins=100):
     models = ['lstm', 'stgcn', 'resstgcn']
     
     plt.figure(figsize=(8, 6))
+    # 최대 샘플 개수 (메모리 절감을 위해)
+    max_samples = 1_000_000
+
     for m in models:
         preds = results_dict[m]['preds_orig']  # (M_sel,1370,8)
         trues = results_dict[m]['trues_orig']
-        # 에러(절대값) flatten
-        errors = (preds - trues).flatten()  # (M_sel*1370*8,)
-        abs_errors = np.abs(errors)
-        # 히스토그램
+
+        M_sel, N, C = preds.shape
+        total_count = M_sel * N * C
+        sample_count = min(total_count, max_samples)
+
+        # 1차원 인덱스 랜덤 샘플링
+        flat_idxs = np.random.choice(total_count, size=sample_count, replace=False)
+        i_window = flat_idxs // (N * C)
+        rem = flat_idxs % (N * C)
+        i_node = rem // C
+        i_chan = rem % C
+
+        # subsample한 위치의 절대오차만 계산
+        abs_errors = np.abs(
+            preds[i_window, i_node, i_chan].astype(np.float64) -
+            trues[i_window, i_node, i_chan].astype(np.float64)
+        )
+
         sns.histplot(abs_errors, bins=bins, stat='density', alpha=0.3, label=m.upper())
-        # KDE 곡선
         sns.kdeplot(abs_errors, bw_adjust=1, label=f"{m.upper()} KDE")
+
+        # 메모리 해제
+        del abs_errors, flat_idxs, i_window, i_node, i_chan
+        gc.collect()
     
     plt.xlabel('Absolute Error')
     plt.ylabel('Density')
@@ -464,14 +515,32 @@ def plot_error_ecdf(results_dict, out_png):
     models = ['lstm', 'stgcn', 'resstgcn']
     
     plt.figure(figsize=(8, 6))
+    max_samples = 500_000
+
     for m in models:
         preds = results_dict[m]['preds_orig']
         trues = results_dict[m]['trues_orig']
-        errors = np.abs((preds - trues).flatten())
-        # ECDF 계산
+
+        M_sel, N, C = preds.shape
+        total_count = M_sel * N * C
+        sample_count = min(total_count, max_samples)
+
+        flat_idxs = np.random.choice(total_count, size=sample_count, replace=False)
+        i_window = flat_idxs // (N * C)
+        rem = flat_idxs % (N * C)
+        i_node = rem // C
+        i_chan = rem % C
+
+        errors = np.abs(
+            preds[i_window, i_node, i_chan].astype(np.float64) -
+            trues[i_window, i_node, i_chan].astype(np.float64)
+        )
         sorted_err = np.sort(errors)
         y = np.arange(1, len(sorted_err) + 1) / len(sorted_err)
         plt.step(sorted_err, y, where='post', label=m.upper())
+
+        del errors, flat_idxs, i_window, i_node, i_chan
+        gc.collect()
     
     plt.xlabel('Absolute Error')
     plt.ylabel('ECDF')
@@ -494,15 +563,30 @@ def plot_true_vs_pred_scatter(results_dict, out_png, sample_fraction=0.01):
     """
     models = ['lstm', 'stgcn', 'resstgcn']
     plt.figure(figsize=(6, 6))
-    
+    # 전체 (M_sel×1370×8) 중 최대 샘플 수: 
+    max_samples = int(1_000_000 * sample_fraction)
+
     for m in models:
-        preds = results_dict[m]['preds_orig'].reshape(-1)  # 벡터화
-        trues = results_dict[m]['trues_orig'].reshape(-1)
-        # 샘플링: 전체 중 sample_fraction만 무작위 선택
-        n_total = len(preds)
-        n_sample = max(1000, int(n_total * sample_fraction))
-        idxs = np.random.choice(n_total, size=n_sample, replace=False)
-        plt.scatter(trues[idxs], preds[idxs], s=5, alpha=0.3, label=m.upper())
+        preds_3d = results_dict[m]['preds_orig']  # (M_sel,1370,8)
+        trues_3d = results_dict[m]['trues_orig']
+        M_sel, N, C = preds_3d.shape
+        total_count = M_sel * N * C
+        sample_count = min(total_count, max(1000, max_samples))
+
+        # 1차원 인덱스 뽑아서 3D 좌표로 변환
+        flat_idxs = np.random.choice(total_count, size=sample_count, replace=False)
+        i_window = flat_idxs // (N * C)
+        rem = flat_idxs % (N * C)
+        i_node = rem // C
+        i_chan = rem % C
+
+        sampled_trues = trues_3d[i_window, i_node, i_chan]
+        sampled_preds = preds_3d[i_window, i_node, i_chan]
+        plt.scatter(sampled_trues, sampled_preds, s=5, alpha=0.3, label=m.upper())
+
+        del preds_3d, trues_3d, sampled_trues, sampled_preds
+        del flat_idxs, i_window, i_node, i_chan
+        gc.collect()
     
     # 1:1 reference 선
     min_val = min(plt.xlim()[0], plt.ylim()[0])
@@ -575,9 +659,21 @@ def plot_epoch_node_curve(epoch_list, node_rmse_dict, out_png, node_list):
     
     for idx, node in enumerate(node_list):
         ax = axes[idx]
+
+        # “node” 키가 있는 모델만 그리도록 시도
+        any_plotted = False
         for m in models:
-            rmse_vals = node_rmse_dict[m][node]  # [rmse_ep5, rmse_ep10, ...]
-            ax.plot(epoch_list, rmse_vals, marker='o', label=m.upper())
+            if node in node_rmse_dict.get(m, {}):
+                rmse_vals = node_rmse_dict[m][node]
+                ax.plot(epoch_list, rmse_vals, marker='o', label=m.upper())
+                any_plotted = True
+            else:
+                # 경고 메시지 (터미널) 한 번만 출력
+                print(f"▶[경고] '{m}' 모델에 Node {node} 정보가 없습니다. 해당 노드는 건너뛰겠습니다.")
+
+        if not any_plotted:
+            ax.text(0.5, 0.5, f"Node {node} data\nnot available", 
+                    ha='center', va='center', transform=ax.transAxes, color='red', fontsize=12)
         ax.set_ylabel(f'Node {node} RMSE')
         ax.set_title(f'Node {node}: Epoch-wise RMSE')
         ax.grid(linestyle='--', alpha=0.4)
@@ -587,4 +683,137 @@ def plot_epoch_node_curve(epoch_list, node_rmse_dict, out_png, node_list):
     axes[-1].set_xlabel('Epoch')
     fig.tight_layout()
     fig.savefig(out_png, dpi=300)
+    plt.close(fig)
+
+# ─── eval/plots.py 추가 부분 ──────────────────────────────────────────────────
+
+def plot_diurnal_weekday_vs_weekend(results_dict, out_png):
+    """
+    주중 vs 주말 일교차 비교: 하루 288 슬롯별 평균 절대오차(mean±std)를 두 그룹으로 나눠서 상하로 그립니다.
+    Args:
+        results_dict (dict): {
+            'lstm': {'preds_orig':..., 'trues_orig':..., 'slot_idx':..., 'is_weekend':...}, 
+            'stgcn': {...}, 'resstgcn': {...}
+        }
+        out_png (str or Path) : 저장할 PNG 경로
+    """
+    models = ['lstm', 'stgcn', 'resstgcn']
+    num_slots = 288
+
+    # "주중/주말 별 슬롯별 평균 ± 표준편차" 계산: {model: {'weekday':(means, stds), 'weekend':(means,stds)} }
+    stats_per_model = {}
+
+    for m in models:
+        preds = results_dict[m]['preds_orig']   # (M_sel,1370,8)
+        trues = results_dict[m]['trues_orig']
+        slot_idx = results_dict[m]['slot_idx']   # (M_sel,)
+        is_wd = results_dict[m]['is_weekend']    # (M_sel,)
+
+        # 두 그룹별로 슬롯 딕셔너리 초기화
+        diffs_wd = {i: [] for i in range(num_slots)}
+        diffs_we = {i: [] for i in range(num_slots)}
+
+        M_sel = preds.shape[0]
+        for i in range(M_sel):
+            s = slot_idx[i]
+            # 해당 윈도우의 1370×8 노드 채널 전체 절대오차 벡터
+            abs_err_flat = np.abs((preds[i] - trues[i]).flatten())
+            if is_wd[i] == 0:
+                diffs_wd[s].extend(abs_err_flat.tolist())
+            else:
+                diffs_we[s].extend(abs_err_flat.tolist())
+
+        # 슬롯별 평균·표준편차 계산
+        means_wd = np.zeros(num_slots); stds_wd = np.zeros(num_slots)
+        means_we = np.zeros(num_slots); stds_we = np.zeros(num_slots)
+        for i in range(num_slots):
+            arr_wd = np.array(diffs_wd[i])
+            arr_we = np.array(diffs_we[i])
+            means_wd[i] = np.mean(arr_wd) if arr_wd.size > 0 else np.nan
+            stds_wd[i]  = np.std(arr_wd)  if arr_wd.size > 0 else np.nan
+            means_we[i] = np.mean(arr_we) if arr_we.size > 0 else np.nan
+            stds_we[i]  = np.std(arr_we)  if arr_we.size > 0 else np.nan
+
+        stats_per_model[m] = {
+            'weekday': (means_wd, stds_wd),
+            'weekend': (means_we, stds_we)
+        }
+
+    # ──────────── 시각화 ────────────
+    slots = np.arange(num_slots)
+    fig, axes = plt.subplots(3, 1, figsize=(12, 12), sharex=True)
+    for idx, m in enumerate(models):
+        ax = axes[idx]
+        mean_wd, std_wd = stats_per_model[m]['weekday']
+        mean_we, std_we = stats_per_model[m]['weekend']
+
+        ax.plot(slots, mean_wd, label='Weekday Mean', color='tab:blue', linewidth=1.2)
+        ax.fill_between(slots, mean_wd-std_wd, mean_wd+std_wd, color='tab:blue', alpha=0.2)
+        ax.plot(slots, mean_we, label='Weekend Mean', color='tab:orange', linewidth=1.2)
+        ax.fill_between(slots, mean_we-std_we, mean_we+std_we, color='tab:orange', alpha=0.2)
+
+        ax.set_title(f"{m.upper()} Diurnal Error Profile (Weekday vs Weekend)")
+        ax.set_ylabel('Mean Absolute Error')
+        ax.legend(fontsize=8)
+        ax.grid(linestyle='--', alpha=0.4)
+
+    axes[-1].set_xlabel('Slot Index (0~287)')
+    plt.tight_layout()
+    plt.savefig(out_png, dpi=300)
+    plt.close(fig)
+
+
+def plot_daily_rmse_trend(results_dict, out_png):
+    """
+    날짜별 평균 RMSE 추이 (주중/주말 구분)
+    - results_dict[m]['dates_sel']에 들어있는 날짜(YYYYMMDD)별로 RMSE를 계산하여
+      시간 축(날짜 순서)으로 꺾은선 형태로 보여줍니다. 주중/주말을 색상으로 구분.
+    Args:
+        results_dict (dict): {
+            'lstm': {'preds_orig':..., 'trues_orig':..., 'dates_sel':..., 'is_weekend':...}, 
+            'stgcn': {...}, 'resstgcn': {...}
+        }
+        out_png (str or Path): 저장할 PNG 경로
+    """
+    models = ['lstm', 'stgcn', 'resstgcn']
+    fig, axes = plt.subplots(3, 1, figsize=(12, 12), sharex=True)
+
+    for idx, m in enumerate(models):
+        ax = axes[idx]
+        preds = results_dict[m]['preds_orig']
+        trues = results_dict[m]['trues_orig']
+        dates = results_dict[m]['dates_sel']    # (M_sel,) int YYYYMMDD
+        # is_weekend 정보는 사용하지 않아도, 날짜별로 groupby만 하면 됨
+
+        # 모든 윈도우에 대해 날짜별 RMSE 계산
+        df_temp = pd.DataFrame({
+            'date': dates,
+            'rmse': np.sqrt(np.mean((preds - trues) ** 2, axis=(1,2)))
+        })
+        # 날짜 정렬
+        df_grp = df_temp.groupby('date')['rmse'].mean().reset_index()
+        df_grp = df_grp.sort_values('date')
+
+        # 날짜를 datetime 객체로 변환 (x축에 그리기 위해)
+        df_grp['date_dt'] = pd.to_datetime(df_grp['date'].astype(str), format='%Y%m%d')
+        # 주말/주중 구분
+        df_grp['is_weekend'] = df_grp['date_dt'].dt.weekday >= 5
+
+        # 선(주중)과 점(주말)으로 구분하여 플롯
+        ax.plot(df_grp[df_grp['is_weekend']==False]['date_dt'],
+                df_grp[df_grp['is_weekend']==False]['rmse'],
+                label='Weekday', color='tab:blue', linewidth=1.5)
+        ax.plot(df_grp[df_grp['is_weekend']==True]['date_dt'],
+                df_grp[df_grp['is_weekend']==True]['rmse'],
+                label='Weekend', color='tab:orange', linestyle='--', linewidth=1.5)
+
+        ax.set_title(f"{m.upper()} Daily Mean RMSE (Weekday vs Weekend)")
+        ax.set_ylabel('Daily Mean RMSE')
+        ax.legend(fontsize=8)
+        ax.grid(linestyle='--', alpha=0.4)
+
+    axes[-1].set_xlabel('Date')
+    plt.xticks(rotation=30)
+    plt.tight_layout()
+    plt.savefig(out_png, dpi=300)
     plt.close(fig)

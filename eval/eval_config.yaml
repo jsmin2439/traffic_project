@@ -27,3 +27,6 @@ compare_node: 42
 
 # (run_eval.py에서 덮어쓰이므로, 보통 null 혹은 빈 문자열로 둬도 무방)
 save_dir: null
+
+# 4.12번 plot_epoch_node_curve 용 노드 목록
+node_list: [42, 100]

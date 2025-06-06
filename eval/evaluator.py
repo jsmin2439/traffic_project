@@ -6,10 +6,13 @@ import pickle
 import numpy as np
 import pandas as pd
 import torch
-import yaml
 from pathlib import Path
 from tqdm import tqdm
 import sys
+from pathlib import Path
+
+# ── “eval” 폴더를 파이썬 모듈 검색 경로에 추가 ──
+sys.path.append(str(Path(__file__).resolve().parent))
 
 from eval.loader import WindowLoader
 from eval.metrics import calc_basic
@@ -202,7 +205,9 @@ def evaluate(cfg: dict):
         results_dict[mtype]['speeds_orig'] = speeds_orig
 
     # ─── 6) CSV 저장 (Global + Channel-wise Metrics) ──────────────────────────
-    save_dir = cfg['save_dir']
+    save_dir = cfg.get('save_dir', None)
+    if not save_dir:
+        raise ValueError("cfg['save_dir']가 정의되어 있지 않습니다. eval_config.yaml을 확인하세요.")
     os.makedirs(save_dir, exist_ok=True)
 
     print(f"▶ Saving global metrics and channel metrics to \"{save_dir}\"...\n")
@@ -225,9 +230,60 @@ def evaluate(cfg: dict):
             ch_rows.append(m_ch)
         pd.DataFrame(ch_rows).to_csv(os.path.join(save_dir, f'metrics_channel_{mtype}.csv'), index=False)
 
+    # ─── 6.5) 주중 vs 주말 별 지표 계산 및 저장 ────────────────────────────────────
+    # (각 모델별로 is_weekend 플래그로 필터링해서 글로벌·채널별 지표를 따로 저장)
+    print(f"▶ Calculating Weekday vs Weekend metrics...\n")
+    for mtype in ['lstm', 'stgcn', 'resstgcn']:
+        preds = results_dict[mtype]['preds_orig']    # (M_sel,1370,8)
+        trues = results_dict[mtype]['trues_orig']    # (M_sel,1370,8)
+        is_wd = results_dict[mtype]['is_weekend']    # (M_sel,)
+
+        # --- 1) 글로벌 지표 (주중/주말) ---
+        rows_wd = []
+        rows_we = []
+        for period_name, mask in [('weekday', is_wd == 0), ('weekend', is_wd == 1)]:
+            if np.any(mask):
+                pred_p = preds[mask]
+                true_p = trues[mask]
+                met_p = calc_basic(pred_p, true_p)
+                met_p['model'] = mtype
+                met_p['period'] = period_name
+            else:
+                # 해당 기간 데이터가 없으면 NaN 채움
+                met_p = dict(MSE=np.nan, RMSE=np.nan, MAE=np.nan, MAPE=np.nan, R2=np.nan,
+                            model=mtype, period=period_name)
+            if period_name == 'weekday':
+                rows_wd.append(met_p)
+            else:
+                rows_we.append(met_p)
+        df_wd_we = pd.DataFrame(rows_wd + rows_we)
+        df_wd_we.to_csv(os.path.join(save_dir, f'metrics_global_{mtype}_weekday_weekend.csv'), index=False)
+
+        # --- 2) 채널별 지표 (주중/주말) ---
+        ch_rows = []
+        for period_name, mask in [('weekday', is_wd == 0), ('weekend', is_wd == 1)]:
+            for ch in range(8):
+                if np.any(mask):
+                    pred_ch = preds[mask, :, ch]
+                    true_ch = trues[mask, :, ch]
+                    met_ch = calc_basic(pred_ch, true_ch)
+                    met_ch.update(model=mtype, channel=f'ch{ch}', period=period_name)
+                else:
+                    met_ch = dict(MSE=np.nan, RMSE=np.nan, MAE=np.nan, MAPE=np.nan, R2=np.nan,
+                                model=mtype, channel=f'ch{ch}', period=period_name)
+                ch_rows.append(met_ch)
+        pd.DataFrame(ch_rows).to_csv(os.path.join(save_dir, f'metrics_channel_{mtype}_weekday_weekend.csv'), index=False)
+    print(f"   → Weekday/Weekend CSVs saved to \"{save_dir}\"\n")
+
     # ─── 7) Epoch 지표 수집 (옵션) ───────────────────────────────────────────────
     results_dict['epoch_list']      = []
-    results_dict['metrics_epoch']   = {'lstm': [], 'stgcn': [], 'resstgcn': []}
+    # 기존: {'lstm': [], 'stgcn': [], 'resstgcn': []}
+    # 수정: 각 모델마다 RMSE, MAE, MAPE, R2를 따로 저장할 수 있도록 dict-of-lists 형태로 변경
+    results_dict['metrics_epoch']   = {
+        'lstm':    {'RMSE': [], 'MAE': [], 'MAPE': [], 'R2': []},
+        'stgcn':   {'RMSE': [], 'MAE': [], 'MAPE': [], 'R2': []},
+        'resstgcn':{'RMSE': [], 'MAE': [], 'MAPE': [], 'R2': []}
+    }
     results_dict['node_epoch_rmse'] = {'lstm': {}, 'stgcn': {}, 'resstgcn': {}}
 
     epoch_list = cfg.get('epoch_list', [])
@@ -264,7 +320,9 @@ def evaluate(cfg: dict):
             preds_o_ep = wloader.denorm(preds_norm_ep, wloader.D)
             trues_o_ep = wloader.denorm(trues_norm_ep, wloader.D)
             met_ep = calc_basic(preds_o_ep, trues_o_ep)
-            results_dict['metrics_epoch']['lstm'].append(met_ep['RMSE'])
+            # 각 지표(RMSE, MAE, MAPE, R2)를 대응하는 리스트에 append
+            for key in ['RMSE', 'MAE', 'MAPE', 'R2']:
+                results_dict['metrics_epoch']['lstm'][key].append(met_ep[key])
             node_rmse = np.sqrt(np.mean((preds_o_ep[:, cn, :] - trues_o_ep[:, cn, :])**2))
             results_dict['node_epoch_rmse']['lstm'].setdefault(cn, []).append(node_rmse)
             print(f"      → LSTM Epoch {ep} done. RMSE={met_ep['RMSE']:.3f}, Node{cn} RMSE={node_rmse:.3f}")
@@ -295,7 +353,9 @@ def evaluate(cfg: dict):
             preds_o_ep = wloader.denorm(preds_norm_ep, wloader.D)
             trues_o_ep = wloader.denorm(trues_norm_ep, wloader.D)
             met_ep = calc_basic(preds_o_ep, trues_o_ep)
-            results_dict['metrics_epoch']['stgcn'].append(met_ep['RMSE'])
+            # 마찬가지로 STGCN 모델에 대해 모든 지표를 리스트에 append
+            for key in ['RMSE', 'MAE', 'MAPE', 'R2']:
+                results_dict['metrics_epoch']['stgcn'][key].append(met_ep[key])
             node_rmse = np.sqrt(np.mean((preds_o_ep[:, cn, :] - trues_o_ep[:, cn, :])**2))
             results_dict['node_epoch_rmse']['stgcn'].setdefault(cn, []).append(node_rmse)
             print(f"      → STGCN Epoch {ep} done. RMSE={met_ep['RMSE']:.3f}, Node{cn} RMSE={node_rmse:.3f}")
@@ -326,7 +386,9 @@ def evaluate(cfg: dict):
             preds_o_ep = wloader.denorm(preds_norm_ep, wloader.D)
             trues_o_ep = wloader.denorm(trues_norm_ep, wloader.D)
             met_ep = calc_basic(preds_o_ep, trues_o_ep)
-            results_dict['metrics_epoch']['resstgcn'].append(met_ep['RMSE'])
+            # ResSTGCN 모델에 대해서도 모든 지표를 딕셔너리별 리스트에 append
+            for key in ['RMSE', 'MAE', 'MAPE', 'R2']:
+                results_dict['metrics_epoch']['resstgcn'][key].append(met_ep[key])
             node_rmse = np.sqrt(np.mean((preds_o_ep[:, cn, :] - trues_o_ep[:, cn, :])**2))
             results_dict['node_epoch_rmse']['resstgcn'].setdefault(cn, []).append(node_rmse)
             print(f"      → ResSTGCN Epoch {ep} done. RMSE={met_ep['RMSE']:.3f}, Node{cn} RMSE={node_rmse:.3f}\n")

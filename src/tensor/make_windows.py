@@ -3,7 +3,7 @@
 """
 make_windows.py
 
-1) 'normalized_tensor_{DATE}_with_weekend.npy' 파일(크기: 288×1370×15)을 로드
+1) 'normalized_tensor_{DATE}_with_weekend.npy' 파일(크기: 288×1370×9)을 로드
 2) 과거 12스텝(1시간) → 다음 1스텝(5분) 슬라이딩 윈도우 (X, Y) 생성
    - X: shape = (12, 1370, 9)  ← queue+spd(8) + weekdend_onehot(1)
    - Y: shape = (1370, 8)       ← 다음 스텝의 queue+spd 8채널

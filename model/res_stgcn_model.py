@@ -177,24 +177,30 @@ class ResSTGCN(nn.Module):
         # ───────────────────────────────────────────────────────────────────
         self.reslstm = ResidualLSTM(num_nodes=num_nodes, hidden_dim=hidden_dim)
 
-    def forward(self, x: torch.Tensor, res_seq: torch.Tensor = None, weekend_flag: torch.Tensor = None) -> torch.Tensor:
+    def forward(self, x: torch.Tensor, res_seq: torch.Tensor, weekend_flag: torch.Tensor) -> torch.Tensor:
+        """
+        Training forward: use both res_seq and weekend_flag to return
+        ST-GCN output + Residual LSTM correction.
+        """
+        y_pred_st = self.stgcn(x)                     # (B, 8, N)
+        res_corr   = self.reslstm(res_seq, weekend_flag)  # (B, 8, N)
+        return y_pred_st + res_corr
+
+    @torch.jit.export
+    def inference(self, x: torch.Tensor, weekend_flag: torch.Tensor) -> torch.Tensor:
+        """
+        Inference: run recursive forecasting loop inside C++ graph,
+        then apply residual LSTM correction to the last step prediction.
+        """
         B, C_in, T, N = x.shape
-        # ───────────────────────────────────────────────────────────────────
-        # (1) ST‐GCN 단기 예측
-        # ───────────────────────────────────────────────────────────────────
-        y_pred_st = self.stgcn(x)  # (B, 8, N)
-
-        # 만약 res_seq 또는 weekend_flag가 주어지지 않으면(추론 단계) → y_pred만 반환
-        if res_seq is None or weekend_flag is None:
-            return y_pred_st
-
-        # ───────────────────────────────────────────────────────────────────
-        # (2) Residual LSTM 보정 (학습 시 사용)
-        # ───────────────────────────────────────────────────────────────────
-        res_corr = self.reslstm(res_seq, weekend_flag)  # (B, 8, N)
-
-        # ───────────────────────────────────────────────────────────────────
-        # (3) 최종 예측: y_pred_st + res_corr (학습 시) 
-        # ───────────────────────────────────────────────────────────────────
-        y_final = y_pred_st + res_corr  # (B, 8, N)
-        return y_final
+        h = x
+        preds = []
+        for _ in range(self.reslstm.seq_len):
+            y_t = self.stgcn(h)  # (B, 8, N)
+            preds.append(y_t)
+            wf = weekend_flag.view(B, 1, 1, 1).expand(B, 1, 1, N)  # (B, 1, 1, N)
+            step = torch.cat([y_t.unsqueeze(2), wf], dim=1)        # (B, 9, 1, N)
+            h = torch.cat([h[:, :, 1:, :], step], dim=2)           # (B, 9, 12, N)
+        res_seq_inf = torch.stack([p.permute(0, 2, 1) for p in preds], dim=1)  # (B, 12, N, 8)
+        res_corr = self.reslstm(res_seq_inf, weekend_flag)                        # (B, 8, N)
+        return preds[-1] + res_corr

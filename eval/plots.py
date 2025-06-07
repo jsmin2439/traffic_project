@@ -3,7 +3,7 @@
 """
 plots.py
 
-이 파일은 세 가지 모델(LSTM, ST-GCN, ResSTGCN)에 대한 다양한 비교 지표와 시각화를 생성하는 함수들을 모아둔 모듈입니다.
+이 파일은 세 가지 모델(LSTM, ST-GCN, Gated-Fusion)에 대한 다양한 비교 지표와 시각화를 생성하는 함수들을 모아둔 모듈입니다.
 각 함수는 CSV 파일 혹은 DataFrame을 입력받아 논문에 포함할 만한 시각화를 그리고, PNG 파일로 저장합니다.
 
 각 함수의 역할:
@@ -101,11 +101,11 @@ def plot_channel_radar(csv_dir, out_png):
     
     Args:
         csv_dir (str or Path): 'metrics_channel_<model>.csv' 파일들이 위치한 디렉터리
-                              파일 패턴: metrics_channel_lstm.csv, metrics_channel_stgcn.csv, metrics_channel_resstgcn.csv
+                              파일 패턴: metrics_channel_lstm.csv, metrics_channel_stgcn.csv, metrics_channel_gated.csv
         out_png (str or Path): 저장할 PNG 파일 경로
     """
     # 모델명과 채널 레이블 정의
-    models = ['lstm', 'stgcn', 'resstgcn']
+    models = ['lstm', 'stgcn', 'gated']
     channels = [f'ch{i}' for i in range(8)]   # ch0 ~ ch7
     
     # 각 모델별 RMSE 값을 리스트에 수집
@@ -149,7 +149,7 @@ def plot_channel_radar(csv_dir, out_png):
 def plot_node_channel_heatmap(results_dict, out_png, normalize: bool = False):
     """
     노드×채널 평균 RMSE를 heatmap으로 시각화합니다.
-    - results_dict: {'lstm': np.ndarray(M,1370,8), 'stgcn': ..., 'resstgcn': ...}
+    - results_dict: {'lstm': np.ndarray(M,1370,8), 'stgcn': ..., 'gated': ...}
       각 값은 denormalized 예측값과 실제값의 차이를 통해 RMSE를 계산해야 함.
     - normalize: True인 경우 각 RMSE 값을 해당 채널의 최대 RMSE로 나누어 정규화
     
@@ -160,7 +160,7 @@ def plot_node_channel_heatmap(results_dict, out_png, normalize: bool = False):
         out_png (str or Path): 저장할 PNG 파일 경로
         normalize (bool): 채널별 RMSE 정규화 여부
     """
-    models = ['lstm', 'stgcn', 'resstgcn']
+    models = ['lstm', 'stgcn', 'gated']
     num_nodes = 1370
     num_channels = 8
     
@@ -215,7 +215,7 @@ def plot_window_rmse_trend(results_dict, out_png, window_indices=None):
                                          예: [(0,100), (101,200), (201,300)]. 
                                          None인 경우 전체 윈도우를 한번에 그립니다.
     """
-    models = ['lstm', 'stgcn', 'resstgcn']
+    models = ['lstm', 'stgcn', 'gated']
     # 각 모델별 윈도우 RMSE 계산: (M_sel,)
     window_rmse = {}
     for m in models:
@@ -276,7 +276,7 @@ def plot_diurnal_ribbon(results_dict, out_png):
         results_dict (dict): {'lstm': {'preds':..., 'trues':...}, ...}
         out_png (str or Path): 저장할 PNG 파일 경로
     """
-    models = ['lstm', 'stgcn', 'resstgcn']
+    models = ['lstm', 'stgcn', 'gated']
     num_slots = 288  # 하루 5분 단위
     
     # 슬롯별 평균 오차와 표준편차 계산: 
@@ -335,12 +335,12 @@ def plot_weekday_vs_weekend_box(results_dict, out_png, pvalue_annot=True):
         results_dict (dict): {
             'lstm': {'preds':(M,1370,8),'trues':(M,1370,8),'dates':(M,), 'is_weekend':(M,)},
             'stgcn': {...}, 
-            'resstgcn': {...}
+            'gated': {...}
         }
         out_png (str or Path): 저장할 PNG 파일 경로
         pvalue_annot (bool): Boxplot 위에 p-value 어노테이션을 추가할지 여부
     """
-    models = ['lstm', 'stgcn', 'resstgcn']
+    models = ['lstm', 'stgcn', 'gated']
     
     # Boxplot용 DataFrame 생성: columns = ['model', 'period', 'rmse']
     rows = []
@@ -396,14 +396,14 @@ def plot_speed_level_bar(results_dict, out_png):
     Args:
         results_dict (dict): {
             'lstm': {'preds':..., 'trues':..., 'speeds':(M_sel,1370,4), 'dates':(M_sel,)},
-            'stgcn': {...}, 'resstgcn': {...}
+            'stgcn': {...}, 'gated': {...}
         }
         - 'speeds': 각 윈도우별 1370개 노드의 4개 speed 채널(정규화 해제 전 혹은 후) 중 평균 속도를 
                     하나의 스칼라로 요약해야 함. 
                     예시: speeds[i].mean()을 통해 윈도우 i의 전체 평균 속도를 구함.
         out_png (str or Path): 저장할 PNG 파일 경로
     """
-    models = ['lstm', 'stgcn', 'resstgcn']
+    models = ['lstm', 'stgcn', 'gated']
     speed_bins = {'Low (<20)': (None, 20), 'Mid (20~40)': (20, 40), 'High (>=40)': (40, None)}
     
     # DataFrame 생성: ['model','speed_level','rmse']
@@ -461,7 +461,7 @@ def plot_error_histogram_kde(results_dict, out_png, bins=100):
         out_png (str or Path): 저장할 PNG 파일 경로
         bins (int): 히스토그램 bin 개수
     """
-    models = ['lstm', 'stgcn', 'resstgcn']
+    models = ['lstm', 'stgcn', 'gated']
     
     plt.figure(figsize=(8, 6))
     # 최대 샘플 개수 (메모리 절감을 위해)
@@ -512,7 +512,7 @@ def plot_error_ecdf(results_dict, out_png):
         results_dict (dict): {'lstm':{'preds_orig':...,'trues_orig':...}, ...}
         out_png (str or Path): 저장할 PNG 파일 경로
     """
-    models = ['lstm', 'stgcn', 'resstgcn']
+    models = ['lstm', 'stgcn', 'gated']
     
     plt.figure(figsize=(8, 6))
     max_samples = 500_000
@@ -561,7 +561,7 @@ def plot_true_vs_pred_scatter(results_dict, out_png, sample_fraction=0.01):
         out_png (str or Path): 저장할 PNG 파일 경로
         sample_fraction (float): 전체 데이터 중에서 scatter plot용 샘플 비율 (예: 0.01 = 1%)
     """
-    models = ['lstm', 'stgcn', 'resstgcn']
+    models = ['lstm', 'stgcn', 'gated']
     plt.figure(figsize=(6, 6))
     # 전체 (M_sel×1370×8) 중 최대 샘플 수: 
     max_samples = int(1_000_000 * sample_fraction)
@@ -610,11 +610,11 @@ def plot_epoch_global_curve(epoch_list, metrics_dict, out_png):
         epoch_list (list of int): [5, 10, 15, ..., 40]
         metrics_dict (dict): {
             'lstm': {'RMSE': [...], 'MAE': [...], 'MAPE': [...], 'R2': [...]},
-            'stgcn': {...}, 'resstgcn': {...}
+            'stgcn': {...}, 'gated': {...}
         }
         out_png (str or Path): 저장할 PNG 파일 경로
     """
-    models = ['lstm', 'stgcn', 'resstgcn']
+    models = ['lstm', 'stgcn', 'gated']
     metrics = ['RMSE', 'MAE', 'MAPE', 'R2']
     
     # Figure와 Axes 생성: subplot 개수 = 메트릭 개수
@@ -644,12 +644,12 @@ def plot_epoch_node_curve(epoch_list, node_rmse_dict, out_png, node_list):
         epoch_list (list of int): [5, 10, 15, ..., 40]
         node_rmse_dict (dict): {
             'lstm': {node_idx: [rmse_ep5, rmse_ep10, ...], ...}, 
-            'stgcn': {...}, 'resstgcn': {...}
+            'stgcn': {...}, 'gated': {...}
         }
         out_png (str or Path): 저장할 PNG 파일 경로
         node_list (list of int): 시각화할 노드 인덱스 목록 (예: [42, 100, 500])
     """
-    models = ['lstm', 'stgcn', 'resstgcn']
+    models = ['lstm', 'stgcn', 'gated']
     n_nodes = len(node_list)
     
     # Figure: subplot 개수 = 노드 개수
@@ -693,11 +693,11 @@ def plot_diurnal_weekday_vs_weekend(results_dict, out_png):
     Args:
         results_dict (dict): {
             'lstm': {'preds_orig':..., 'trues_orig':..., 'slot_idx':..., 'is_weekend':...}, 
-            'stgcn': {...}, 'resstgcn': {...}
+            'stgcn': {...}, 'gated': {...}
         }
         out_png (str or Path) : 저장할 PNG 경로
     """
-    models = ['lstm', 'stgcn', 'resstgcn']
+    models = ['lstm', 'stgcn', 'gated']
     num_slots = 288
 
     # "주중/주말 별 슬롯별 평균 ± 표준편차" 계산: {model: {'weekday':(means, stds), 'weekend':(means,stds)} }
@@ -771,11 +771,11 @@ def plot_daily_rmse_trend(results_dict, out_png):
     Args:
         results_dict (dict): {
             'lstm': {'preds_orig':..., 'trues_orig':..., 'dates_sel':..., 'is_weekend':...}, 
-            'stgcn': {...}, 'resstgcn': {...}
+            'stgcn': {...}, 'gated': {...}
         }
         out_png (str or Path): 저장할 PNG 경로
     """
-    models = ['lstm', 'stgcn', 'resstgcn']
+    models = ['lstm', 'stgcn', 'gated']
     fig, axes = plt.subplots(3, 1, figsize=(12, 12), sharex=True)
 
     for idx, m in enumerate(models):

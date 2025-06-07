@@ -61,16 +61,16 @@ res_dir = evaluate(cfg)  # → eval/results/YYMMDD_HHMM/
 #       'speeds_orig':np.ndarray(shape=(M_sel,1370,4))  # 각 윈도우의 raw 속도 채널 (denorm)
 #   },
 #   'stgcn': { ... },
-#   'resstgcn': { ... },
+#   'gated': { ... },
 #   # 그 외, epoch별 글로벌 지표 및 노드별 RMSE 정보 (Epoch 분석용)
 #   'epoch_list': [5,10,15,20,25,30,35,40],
 #   'metrics_epoch': {
 #       'lstm': {'RMSE': [...], 'MAE':[...], 'MAPE':[...], 'R2':[...], },
-#       'stgcn': {...}, 'resstgcn': {...}
+#       'stgcn': {...}, 'gated': {...}
 #   },
 #   'node_epoch_rmse': {
 #       'lstm': { node_idx: [rmse_ep5, rmse_ep10, ...], ... },
-#       'stgcn': {...}, 'resstgcn': {...}
+#       'stgcn': {...}, 'gated': {...}
 #   }
 # }
 #
@@ -111,8 +111,8 @@ plots.plot_node_channel_heatmap(
                     'trues_orig': results_dict['lstm']['trues_orig']},
         'stgcn':   {'preds_orig': results_dict['stgcn']['preds_orig'],
                     'trues_orig': results_dict['stgcn']['trues_orig']},
-        'resstgcn':{'preds_orig': results_dict['resstgcn']['preds_orig'],
-                    'trues_orig': results_dict['resstgcn']['trues_orig']}
+        'gated': {'preds_orig': results_dict['gated']['preds_orig'],
+                  'trues_orig': results_dict['gated']['trues_orig']}
     },
     out_png=str(res_dir / 'heatmap_node_channel.png'),
     normalize=False
@@ -127,8 +127,8 @@ plots.plot_window_rmse_trend(
                     'trues_orig': results_dict['lstm']['trues_orig']},
         'stgcn':   {'preds_orig': results_dict['stgcn']['preds_orig'],
                     'trues_orig': results_dict['stgcn']['trues_orig']},
-        'resstgcn':{'preds_orig': results_dict['resstgcn']['preds_orig'],
-                    'trues_orig': results_dict['resstgcn']['trues_orig']}
+        'gated': {'preds_orig': results_dict['gated']['preds_orig'],
+                  'trues_orig': results_dict['gated']['trues_orig']}
     },
     out_png=str(res_dir / 'window_rmse_trend_all.png'),
     window_indices=None
@@ -145,9 +145,9 @@ plots.plot_diurnal_ribbon(
         'stgcn':  {'preds_orig': results_dict['stgcn']['preds_orig'],
                    'trues_orig': results_dict['stgcn']['trues_orig'],
                    'slot_idx':   results_dict['stgcn']['slot_idx']},
-        'resstgcn': {'preds_orig': results_dict['resstgcn']['preds_orig'],
-                     'trues_orig': results_dict['resstgcn']['trues_orig'],
-                     'slot_idx':   results_dict['resstgcn']['slot_idx']}
+        'gated': {'preds_orig': results_dict['gated']['preds_orig'],
+                     'trues_orig': results_dict['gated']['trues_orig'],
+                     'slot_idx':   results_dict['gated']['slot_idx']}
     },
     out_png=str(res_dir / 'diurnal_ribbon.png')
 )
@@ -165,10 +165,10 @@ plots.plot_weekday_vs_weekend_box(
                    'trues_orig': results_dict['stgcn']['trues_orig'],
                    'dates_sel':  results_dict['stgcn']['dates_sel'],
                    'is_weekend': results_dict['stgcn']['is_weekend']},
-        'resstgcn': {'preds_orig': results_dict['resstgcn']['preds_orig'],
-                    'trues_orig': results_dict['resstgcn']['trues_orig'],
-                    'dates_sel':  results_dict['resstgcn']['dates_sel'],
-                    'is_weekend': results_dict['resstgcn']['is_weekend']}
+        'gated': {'preds_orig': results_dict['gated']['preds_orig'],
+                    'trues_orig': results_dict['gated']['trues_orig'],
+                    'dates_sel':  results_dict['gated']['dates_sel'],
+                    'is_weekend': results_dict['gated']['is_weekend']}
     },
     out_png=str(res_dir / 'weekday_vs_weekend_box.png'),
     pvalue_annot=True
@@ -185,9 +185,9 @@ plots.plot_speed_level_bar(
         'stgcn':  {'preds_orig': results_dict['stgcn']['preds_orig'],
                    'trues_orig': results_dict['stgcn']['trues_orig'],
                    'speeds_orig':results_dict['stgcn']['speeds_orig']},
-        'resstgcn': {'preds_orig': results_dict['resstgcn']['preds_orig'],
-                    'trues_orig': results_dict['resstgcn']['trues_orig'],
-                    'speeds_orig':results_dict['resstgcn']['speeds_orig']}
+        'gated': {'preds_orig': results_dict['gated']['preds_orig'],
+                    'trues_orig': results_dict['gated']['trues_orig'],
+                    'speeds_orig':results_dict['gated']['speeds_orig']}
     },
     out_png=str(res_dir / 'speed_level_rmse_bar.png')
 )
@@ -201,8 +201,8 @@ plots.plot_error_histogram_kde(
                    'trues_orig': results_dict['lstm']['trues_orig']},
         'stgcn':  {'preds_orig': results_dict['stgcn']['preds_orig'],
                    'trues_orig': results_dict['stgcn']['trues_orig']},
-        'resstgcn': {'preds_orig': results_dict['resstgcn']['preds_orig'],
-                    'trues_orig': results_dict['resstgcn']['trues_orig']}
+        'gated': {'preds_orig': results_dict['gated']['preds_orig'],
+                    'trues_orig': results_dict['gated']['trues_orig']}
     },
     out_png=str(res_dir / 'error_histogram_kde.png'),
     bins=100
@@ -217,8 +217,8 @@ plots.plot_error_ecdf(
                    'trues_orig': results_dict['lstm']['trues_orig']},
         'stgcn':  {'preds_orig': results_dict['stgcn']['preds_orig'],
                    'trues_orig': results_dict['stgcn']['trues_orig']},
-        'resstgcn': {'preds_orig': results_dict['resstgcn']['preds_orig'],
-                    'trues_orig': results_dict['resstgcn']['trues_orig']}
+        'gated': {'preds_orig': results_dict['gated']['preds_orig'],
+                    'trues_orig': results_dict['gated']['trues_orig']}
     },
     out_png=str(res_dir / 'error_ecdf.png')
 )
@@ -232,8 +232,8 @@ plots.plot_true_vs_pred_scatter(
                    'trues_orig': results_dict['lstm']['trues_orig']},
         'stgcn':  {'preds_orig': results_dict['stgcn']['preds_orig'],
                    'trues_orig': results_dict['stgcn']['trues_orig']},
-        'resstgcn': {'preds_orig': results_dict['resstgcn']['preds_orig'],
-                    'trues_orig': results_dict['resstgcn']['trues_orig']}
+        'gated': {'preds_orig': results_dict['gated']['preds_orig'],
+                    'trues_orig': results_dict['gated']['trues_orig']}
     },
     out_png=str(res_dir / 'true_vs_pred_scatter.png'),
     sample_fraction=0.01
@@ -270,9 +270,9 @@ plots.plot_diurnal_ribbon(
         'stgcn':  {'preds_orig': results_dict['stgcn']['preds_orig'],
                    'trues_orig': results_dict['stgcn']['trues_orig'],
                    'slot_idx':   results_dict['stgcn']['slot_idx']},
-        'resstgcn': {'preds_orig': results_dict['resstgcn']['preds_orig'],
-                     'trues_orig': results_dict['resstgcn']['trues_orig'],
-                     'slot_idx':   results_dict['resstgcn']['slot_idx']}
+        'gated': {'preds_orig': results_dict['gated']['preds_orig'],
+                     'trues_orig': results_dict['gated']['trues_orig'],
+                     'slot_idx':   results_dict['gated']['slot_idx']}
     },
     out_png=str(res_dir / 'diurnal_ribbon.png')
 )
@@ -295,11 +295,11 @@ plots.plot_diurnal_weekday_vs_weekend(
             'slot_idx':   results_dict['stgcn']['slot_idx'],
             'is_weekend': results_dict['stgcn']['is_weekend']
         },
-        'resstgcn': {
-            'preds_orig': results_dict['resstgcn']['preds_orig'],
-            'trues_orig': results_dict['resstgcn']['trues_orig'],
-            'slot_idx':   results_dict['resstgcn']['slot_idx'],
-            'is_weekend': results_dict['resstgcn']['is_weekend']
+        'gated': {
+            'preds_orig': results_dict['gated']['preds_orig'],
+            'trues_orig': results_dict['gated']['trues_orig'],
+            'slot_idx':   results_dict['gated']['slot_idx'],
+            'is_weekend': results_dict['gated']['is_weekend']
         }
     },
     out_png=str(res_dir / 'diurnal_wd_vs_we.png')
@@ -322,11 +322,11 @@ plots.plot_daily_rmse_trend(
             'dates_sel':  results_dict['stgcn']['dates_sel'],
             'is_weekend': results_dict['stgcn']['is_weekend']
         },
-        'resstgcn': {
-            'preds_orig': results_dict['resstgcn']['preds_orig'],
-            'trues_orig': results_dict['resstgcn']['trues_orig'],
-            'dates_sel':  results_dict['resstgcn']['dates_sel'],
-            'is_weekend': results_dict['resstgcn']['is_weekend']
+        'gated': {
+            'preds_orig': results_dict['gated']['preds_orig'],
+            'trues_orig': results_dict['gated']['trues_orig'],
+            'dates_sel':  results_dict['gated']['dates_sel'],
+            'is_weekend': results_dict['gated']['is_weekend']
         }
     },
     out_png=str(res_dir / 'daily_rmse_trend_wd_vs_we.png')

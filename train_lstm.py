@@ -23,9 +23,9 @@ from model.lstm_model import BasicLSTM
 from train_utils import EarlyStopping, ensure_dir, print_memory_usage
 from tqdm import tqdm
 
-# ┌──────────────────────────────────────────────────────────────────────────┐
-# │ 0. ArgumentParser 설정                                                    │
-# └──────────────────────────────────────────────────────────────────────────┘
+# ─────────────────────────────────────────────────────────────────────────
+# 0. 학습 파라미터 설정: 명령줄 인자를 파싱하여 hyperparameter 정의
+# ─────────────────────────────────────────────────────────────────────────
 parser = argparse.ArgumentParser(description="Train Basic LSTM on Traffic Data")
 parser.add_argument('--batch', type=int, default=4, help='Batch size for training')
 parser.add_argument('--epochs', type=int, default=30, help='Number of epochs to train')
@@ -37,12 +37,12 @@ parser.add_argument('--checkpoint_dir', type=str, default='checkpoints_lstm',
                     help='Directory to save model checkpoints')
 args = parser.parse_args()
 
-# 학습 관련 디렉토리 생성
+# 체크포인트 저장 디렉토리 생성
 ensure_dir(args.checkpoint_dir)
 
-# ┌──────────────────────────────────────────────────────────────────────────┐
-# │ 1. 장치(Device) 설정                                                       │
-# └──────────────────────────────────────────────────────────────────────────┘
+# ─────────────────────────────────────────────────────────────────────────
+# 1. 학습에 사용할 장치(GPU/MPS/CPU) 설정
+# ─────────────────────────────────────────────────────────────────────────
 if torch.cuda.is_available():
     device = torch.device('cuda')
     torch.backends.cudnn.benchmark = True
@@ -50,63 +50,51 @@ elif torch.backends.mps.is_available():
     device = torch.device('mps')
 else:
     device = torch.device('cpu')
-print(f"▶ Using device: {device}")
+print(f"\u25b6 Using device: {device}")
 
-# ┌──────────────────────────────────────────────────────────────────────────┐
-# │ 2. DataLoader 생성                                                         │
-# └──────────────────────────────────────────────────────────────────────────┘
-# get_dataloaders() → train_loader, val_loader, test_loader 반환
+# ─────────────────────────────────────────────────────────────────────────
+# 2. 학습/검증/테스트 데이터 로드
+# ─────────────────────────────────────────────────────────────────────────
 train_loader, val_loader, test_loader = get_dataloaders(batch_size=args.batch)
 
-# ┌──────────────────────────────────────────────────────────────────────────┐
-# │ 3. 모델 생성                                                               │
-# └──────────────────────────────────────────────────────────────────────────┘
-# 각 배치에서 x_batch: (B, C, 12, 1370), y_batch: (B, 8, 1370)
-# LSTM 입력 차원 = 8 (큐4 + 스피드4)
-num_nodes = 1370
-input_dim = 8  # LSTM 입력 feature = Queue4 + Speed4
+# ─────────────────────────────────────────────────────────────────────────
+# 3. Basic LSTM 모델 인스턴스 생성
+# ─────────────────────────────────────────────────────────────────────────
+num_nodes = 1370            # 차로 수
+input_dim = 8               # 입력 채널 수 (queue 4 + speed 4)
 model = BasicLSTM(num_nodes=num_nodes, input_dim=input_dim,
                   hidden_dim=args.hidden, num_layers=1, dropout=0.0).to(device)
-print(f"▶ LSTM Parameter count: {sum(p.numel() for p in model.parameters() if p.requires_grad)}")
+print(f"\u25b6 LSTM Parameter count: {sum(p.numel() for p in model.parameters() if p.requires_grad)}")
 
-# Loss 및 Optimizer
+# 손실함수 및 옵티마이저 정의
 criterion = nn.MSELoss()
 optimizer = optim.Adam(model.parameters(), lr=args.lr)
 early_stopper = EarlyStopping(patience=args.patience, min_delta=1e-5)
 
-# ┌──────────────────────────────────────────────────────────────────────────┐
-# │ 4. 학습 루프                                                               │
-# └──────────────────────────────────────────────────────────────────────────┘
+# ─────────────────────────────────────────────────────────────────────────
+# 4. 학습 루프 시작
+# ─────────────────────────────────────────────────────────────────────────
 for epoch in range(1, args.epochs + 1):
-    model.train()
+    model.train()  # 학습 모드
     train_loss_meter = 0.0
     n_batches = 0
 
-    # ─────────────────────────────────────────────────────────────────────────
-    # A) Training
-    # ─────────────────────────────────────────────────────────────────────────
+    # ───── A) Training 루프 ─────
     for x_batch, y_batch, _ in tqdm(train_loader, ncols=80, desc=f"[Epoch {epoch}/{args.epochs}] Train"):
-        # x_batch: (B, C, 12, 1370), y_batch: (B, 8, 1370)
-        x_batch = x_batch.to(device)    # (B, C_in, 12, 1370)
-        y_batch = y_batch.to(device)    # (B,  8, 1370)
+        x_batch = x_batch.to(device)
+        y_batch = y_batch.to(device)
 
-        # ─────────────────────────────────────────────────────────────────────
-        # (1) 전통적 LSTM은 “채널=8” 만 필요 → x_batch[:, :8, :, :]
-        # (2) LSTM이 기대하는 입력 형태: (B, 12, 1370, 8)
-        #     → permute: (B, C, 12, N) → (B, 12, N, C)
-        # ─────────────────────────────────────────────────────────────────────
+        # LSTM 입력 형태로 변환: (B, C, T, N) → (B, T, N, C) → (B, T, N, 8)
         x_lstm = x_batch[:, :8, :, :].permute(0, 2, 3, 1).contiguous()
-        # x_lstm.shape == (B, 12, 1370, 8)
 
         optimizer.zero_grad()
-        y_pred = model(x_lstm)  # (B, 1370, 8)
+        y_pred = model(x_lstm)  # 예측 결과: (B, 1370, 8)
 
-        # Loss 계산: MSE between 예측값과 실제값 (차원 정렬)
-        # y_batch: (B, 8, 1370) → permute → (B, 1370, 8)
-        loss = criterion(y_pred, y_batch.permute(0, 2, 1))  
+        # 실제 정답: (B, 8, 1370) → (B, 1370, 8)로 차원 맞춤
+        loss = criterion(y_pred, y_batch.permute(0, 2, 1))
         loss.backward()
 
-        # Gradient Clipping
+        # Gradient clipping (폭주 방지)
         if args.clip > 0:
             torch.nn.utils.clip_grad_norm_(model.parameters(), args.clip)
 
@@ -117,9 +105,7 @@ for epoch in range(1, args.epochs + 1):
 
     train_loss = train_loss_meter / n_batches
 
-    # ─────────────────────────────────────────────────────────────────────────
-    # B) Validation
-    # ─────────────────────────────────────────────────────────────────────────
+    # ───── B) Validation 루프 ─────
     model.eval()
     val_loss_meter = 0.0
     n_val_batches = 0
@@ -135,19 +121,15 @@ for epoch in range(1, args.epochs + 1):
 
     val_loss = val_loss_meter / n_val_batches
 
-    # ─────────────────────────────────────────────────────────────────────────
-    # C) 학습 로그 출력
-    # ─────────────────────────────────────────────────────────────────────────
+    # ───── C) 로그 출력 ─────
     print(f"[Epoch {epoch:02d}/{args.epochs:02d}] "
           f"Train Loss: {train_loss:.6f} | Val Loss: {val_loss:.6f}")
     print_memory_usage(device)
 
-    # ─────────────────────────────────────────────────────────────────────────
-    # D) EarlyStopping 체크 + 체크포인트 저장
-    # ─────────────────────────────────────────────────────────────────────────
+    # ───── D) EarlyStopping 체크 및 저장 ─────
     early_stopper.step(val_loss)
     if early_stopper.stop:
-        print(f"▶ Early stopping triggered at epoch {epoch}")
+        print(f"\u25b6 Early stopping triggered at epoch {epoch}")
         break
 
     # 매 5 epoch마다 체크포인트 저장
@@ -157,6 +139,6 @@ for epoch in range(1, args.epochs + 1):
                     'model_state_dict': model.state_dict(),
                     'optimizer_state_dict': optimizer.state_dict(),
                     'val_loss': val_loss}, ckpt_path)
-        print(f"▶ Checkpoint saved: {ckpt_path}")
+        print(f"\u25b6 Checkpoint saved: {ckpt_path}")
 
-print("▶ Training finished.")
+print("\u25b6 Training finished.")

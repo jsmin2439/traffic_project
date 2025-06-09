@@ -39,7 +39,7 @@ all_Y_global = _np.load(Path('3_tensor') / 'windows' / 'all_Y.npy')  # (num_wind
 num_windows = all_X_global.shape[0]
 # ───────────────────────────────────────────────────────────────────────────
 
-from model.res_stgcn_model import ResSTGCN
+from model.pooled_residual_stgcn import ResSTGCN
 from train_utils import EarlyStopping, ensure_dir, print_memory_usage
 from tqdm import tqdm
 

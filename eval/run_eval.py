@@ -78,7 +78,28 @@ results_dict_path = res_dir / "results_dict.pkl"
 if not results_dict_path.exists():
     raise FileNotFoundError(f"Expected pickled results_dict at {results_dict_path}")
 with open(results_dict_path, 'rb') as f:
-    results_dict = pickle.load(f)
+    agg = pickle.load(f)
+
+# --- agg 리스트 → dict 구조로 재구성 ---
+results_dict = {}
+for mtype, entries in agg.items():
+    # entries: [(preds, trues, dates, idx), ...]
+    preds = np.concatenate([e[0] for e in entries], axis=0)    # (M, N, C)
+    trues = np.concatenate([e[1] for e in entries], axis=0)    # (M, N, C)
+    dates = np.concatenate([e[2] for e in entries], axis=0)    # (M,)
+    slots = np.concatenate([e[3] for e in entries], axis=0)    # (M,)
+    # 주말 플래그 계산 (예시: YYYYMMDD 문자열에서 요일 체크)
+    is_weekend = np.array([1 if datetime.datetime.strptime(str(int(d)), "%Y%m%d").weekday() >= 5 else 0
+                           for d in dates], dtype=int)
+
+    results_dict[mtype] = {
+        'preds_orig': preds,
+        'trues_orig': trues,
+        'dates_sel' : dates.astype(int),
+        'slot_idx'  : slots.astype(int),
+        'is_weekend': is_weekend
+        # 필요한 경우 'speeds_orig' 도 여기에 추가하세요.
+    }
 
 # ----------------------------
 # 4) Generate all plots

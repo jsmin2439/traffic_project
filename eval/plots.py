@@ -269,15 +269,14 @@ def plot_window_rmse_trend(results_dict, out_png, window_indices=None):
 
 def plot_diurnal_ribbon(results_dict, out_png):
     """
-    하루(288 슬롯) 기준 ‘평균 오차 ± 표준편차’ Ribbon Plot을 그려서 
+    하루 슬롯별 ‘평균 오차 ± 표준편차’ Ribbon Plot을 그려서 
     모델별로 Rush-hour 대 예측 성능 변화를 시각화합니다.
-    
-    Args:
-        results_dict (dict): {'lstm': {'preds':..., 'trues':...}, ...}
-        out_png (str or Path): 저장할 PNG 파일 경로
     """
     models = ['lstm', 'stgcn', 'gated']
-    num_slots = 288  # 하루 5분 단위
+    # 실제 slot_idx의 최대값을 보고 슬롯 수를 결정
+    # (예기치 않은 288같은 값도 포함되도록)
+    all_slot_indices = np.concatenate([results_dict[m]['slot_idx'] for m in models])
+    num_slots = int(all_slot_indices.max()) + 1
     
     # 슬롯별 평균 오차와 표준편차 계산: 
     # X: 슬롯 인덱스 0~287, Y: 모든 날짜·모든 노드·모든 채널 집합
@@ -295,10 +294,12 @@ def plot_diurnal_ribbon(results_dict, out_png):
         slot_diffs = {i: [] for i in range(num_slots)}
         M_sel = preds.shape[0]
         for i in range(M_sel):
-            s = slot_idx[i]
+            s = int(slot_idx[i]) % num_slotss
             # i번째 윈도우 예측과 실제의 차이를 1370×8 flatten 후 추가
+            if s < 0 or s >= num_slots:
+                continue
             diff_i = (preds[i] - trues[i]).flatten()  # (1370*8,)
-            slot_diffs[s].extend(diff_i.tolist())
+            slot_diffs.setdefault(s, []).extend(diff_i.tolist())
         
         # 슬롯별 평균 및 표준편차 계산
         means = np.zeros(num_slots)

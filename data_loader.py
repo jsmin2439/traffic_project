@@ -1,7 +1,7 @@
 # ┌──────────────────────────────────────────────────────────────────────────┐
 # │ data_loader.py                                                           │
 # │                                                                          │
-# │ 목적: 전통적 LSTM, 원본 ST‐GCN, T‐GCN, DCRNN, 제안 모델(Residual 포함) 등 │
+# │ 목적: 전통적 LSTM, 원본 ST‐GCN, T‐GCN, DCRNN, 제안 모델(Gated 포함) 등 │
 # │ 모든 모델이 동일한 방식으로 데이터를 읽어올 수 있도록                   │
 # │ Dataset 클래스 및 DataLoader 생성 코드만 모아 두었습니다.               │
 # │                                                                          │
@@ -78,14 +78,21 @@ class TrafficDataset(Dataset):
         # (12,1370,C_in) → (C_in,12,1370)
         x_tensor = x.permute(2, 0, 1).contiguous()
         # (1370,8) → (8,1370)
-        y_tensor = y.permute(1, 0).contiguous()
+        y_last = y.permute(1,0).contiguous()
 
-        return x_tensor, y_tensor, idx, date  # idx는 원본 윈도우 인덱스, date는 정수형 날짜
+        # 3) y_seq: 과거 12스텝 실제 traffic 채널 시퀀스 (batch-aware)
+        # x_tensor shape: (C_in, T, N), C_in = traffic_channels(8) + flag(1) = 9
+        # feat: traffic 채널(0~7)만 선택 → (8, T, N)
+        feat = x_tensor[:8, :, :]                # (8, T, N)
+        # (8, T, N) → (T, 8, N)
+        y_seq = feat.permute(1, 0, 2).contiguous()  # (T, C=8, N)
+
+        return x_tensor, y_last, y_seq, idx, date  # idx는 원본 윈도우 인덱스, date는 정수형 날짜
 
 def get_dataloaders(batch_size: int = 4, num_workers: Optional[int] = None, pin_memory: bool = True):
     """
     ────────────────────────────────────────────────────────────────────────────
-    모든 모델(전통적 LSTM, ST-GCN, T-GCN, DCRNN, ResLSTM 등)이 공통으로 사용하는
+    모든 모델(전통적 LSTM, ST-GCN, T-GCN, DCRNN, Gated 등)이 공통으로 사용하는
     DataLoader를 생성해 주는 함수입니다.
 
     Args:

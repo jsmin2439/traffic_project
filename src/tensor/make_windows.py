@@ -3,7 +3,7 @@
 """
 make_windows.py
 
-1) 'normalized_tensor_{DATE}_with_weekend.npy' 파일(크기: 288×1370×9)을 로드
+1) 'normalized_tensor_{DATE}_with_flag.npy' 파일(크기: 288×1370×9)을 로드
 2) 과거 12스텝(1시간) → 다음 1스텝(5분) 슬라이딩 윈도우 (X, Y) 생성
    - X: shape = (12, 1370, 9)  ← queue+spd(8) + weekdend_onehot(1)
    - Y: shape = (1370, 8)       ← 다음 스텝의 queue+spd 8채널
@@ -57,7 +57,7 @@ all_DATE = []   # ← 윈도우별 DATE 메타정보를 담을 리스트
 
 for DATE in DATE_LIST:
     date_str = str(DATE)
-    tensor_path = os.path.join(BASE_DIR, date_str, f'normalized_tensor_{DATE}_with_weekend.npy')
+    tensor_path = os.path.join(BASE_DIR, date_str, f'normalized_tensor_{DATE}_with_flag.npy')
     
     # 파일 유무 확인
     if not os.path.exists(tensor_path):
@@ -65,7 +65,7 @@ for DATE in DATE_LIST:
         continue
     
     # (1) 정규화 + 요일 정보가 붙은 텐서 로드
-    #     - 파일명: normalized_tensor_{DATE}_with_weekday.npy
+    #     - 파일명: normalized_tensor_{DATE}_with_flag.npy
     #     - shape = (288, 1370, 15)
     daily = np.load(tensor_path)
     

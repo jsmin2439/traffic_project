@@ -66,18 +66,34 @@ cfg 예시 (eval_config.yaml):
         ckpt = torch.load(ckpt_path, map_location=device)
 
         if mtype == 'lstm':
-            m = BasicLSTM(num_nodes=1370, input_dim=8, hidden_dim=64)
+            hidden_dim = cfg.get('hidden2', 64)
+            m = BasicLSTM(num_nodes=1370, input_dim=8, hidden_dim=hidden_dim)
             m.load_state_dict(ckpt['model_state_dict'])
+            m = m.to(device).eval()
+            m = torch.jit.script(m)
         elif mtype == 'stgcn':
+            # A 행렬 로드 (CPU)
             A_cpu = np.load(os.path.join(cfg['tensor_dir'], 'adjacency', 'A_lane.npy'))
             A_cuda = torch.from_numpy(A_cpu).float().to(device)
-            m = STGCN(in_channels=9, out_channels=8, num_nodes=A_cpu.shape[0], A=torch.from_numpy(A_cpu).float())
+
+            # 하이퍼파라미터 hidden1을 config에서 읽어옵니다.
+            hidden1 = cfg.get('hidden1', 64)
+
+            # STGCN 초기화: in_channels=9, hidden1, out_channels=8, num_nodes, A
+            m = STGCN(
+                in_channels=9,
+                hidden1=hidden1,
+                out_channels=8,
+                num_nodes=A_cpu.shape[0],
+                A=torch.from_numpy(A_cpu).float()
+            )
             m.load_state_dict(ckpt['model_state_dict'])
-            # 서브모듈 A 덮어쓰기
-            m = m.to(device)
-            for sub in m.modules():
-                if hasattr(sub, 'A'):
-                    sub.A = A_cuda
+            m = m.to(device).eval()
+            m = torch.jit.script(m)
+            # 모델 내 A 속성에 GPU Tensor 덮어쓰기
+            for submodule in m.modules():
+                if hasattr(submodule, 'A'):
+                    submodule.A = A_cuda
         elif mtype == 'gated':
             A_cpu = np.load(os.path.join(cfg['tensor_dir'], 'adjacency', 'A_lane.npy'))
             A_cuda = torch.from_numpy(A_cpu).float().to(device)
@@ -122,18 +138,60 @@ cfg 예시 (eval_config.yaml):
         for mtype, m in models.items():
             weekend_flag = x_t[:,8,0,0]
             preds = predict(m, x_t, mtype, device, weekend_flag=weekend_flag)
-            agg[mtype].append((preds, Yb.copy(), date_b.copy(), idx_b.copy()))
+            agg[mtype].append( dict(
+                preds = preds,
+                trues = Yb.copy(),
+                dates = date_b.copy(),
+                slots = (idx_b % 288).copy()          # 0~287 보장
+            ))
     print(f"▶ Inference done in {time.time()-t0:.1f}s\n")
 
-    # 이하 생략: agg 처리, denorm, CSV/PKL 저장 부분도 'resstgcn' → 'gated' 변경
-    # ...
+    # ─── 5) concat 하여 최종 results_dict 구성 ──────────────────────────────
+    results_dict = {}
+    for mtype, lst in agg.items():
+        results_dict[mtype] = {
+            'preds_orig' : np.concatenate([e['preds']  for e in lst], axis=0),
+            'trues_orig' : np.concatenate([e['trues']  for e in lst], axis=0),
+            'dates_sel'  : np.concatenate([e['dates']  for e in lst], axis=0),
+            'slot_idx'   : np.concatenate([e['slots']  for e in lst], axis=0),
+        }
+
+   # (이하 CSV 저장·pickle 저장 부분은 results_dict 사용)
 
     # 8) 결과 저장
+    # ─── 7) Metrics CSV 저장 ────────────────────────────────────────────────
     save_dir = cfg['save_dir']
+    os.makedirs(save_dir, exist_ok=True)
+
+    # (1) Global metrics
+    global_rows = []
+    for mtype, entries in agg.items():
+        # preds, trues: concat over all windows
+        preds = results_dict[mtype]['preds_orig']
+        trues = results_dict[mtype]['trues_orig']
+        met = calc_basic(preds, trues)
+        met['model'] = mtype
+        global_rows.append(met)
+    pd.DataFrame(global_rows).to_csv(os.path.join(save_dir, 'metrics_global.csv'), index=False)
+
+    # (2) Channel-wise metrics
+    for mtype, entries in agg.items():
+        rows = []
+        preds = results_dict[mtype]['preds_orig']
+        trues = results_dict[mtype]['trues_orig']
+        for ch in range(preds.shape[2]):
+            met = calc_basic(preds[:,:,ch], trues[:,:,ch])
+            met.update(model=mtype, channel=f'ch{ch}')
+            rows.append(met)
+        pd.DataFrame(rows).to_csv(
+            os.path.join(save_dir, f'metrics_channel_{mtype}.csv'),
+            index=False
+        )
+
+    # ─── 8) Pickle 저장 ────────────────────────────────────────────────────
     with open(os.path.join(save_dir,'results_dict.pkl'),'wb') as f:
         pickle.dump(agg, f)
-    print(f"▶ Saved to {save_dir}")
-
+    print(f"▶ Saved CSVs & pickle to {save_dir}")
     return Path(save_dir)
 
 if __name__ == '__main__':

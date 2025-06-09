@@ -1,68 +1,103 @@
-# ┌──────────────────────────────────────────────────────────────────────────┐
-# │ verify_models.py                                                          │
-# │                                                                          │
-# │ 목적: 세 모델(전통적 LSTM, 원본 ST-GCN, 우리 모델)의 Forward PASS를      │
-# │ 간단한 가짜 입력으로 각자 올바르게 연산되는지 검증합니다.                │
-# └──────────────────────────────────────────────────────────────────────────┘
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""
+verify_models.py
+
+목적: 기본 LSTM, ST-GCN, GatedFusionSTGCN, PooledResSTGCN 모델의 Forward PASS를
+더미 입력으로 검증합니다.
+"""
 
 import torch
 import numpy as np
 
-# STEP 1: 데이터 로더(생략) 대신, 랜덤 입력으로 확인
-# 예: B=2 (batch size), T=12, N=1370, C_in=8(큐+스피드)
-B = 2
-T = 12
-N = 1370
-C_in = 8
-
-# 랜덤 입력 생성 (정규분포 N(0,1) 가정)
-x_rand = torch.randn(B, T, N, C_in)
+# ─────────────────────────────────────────────────────────────────────────
+# 공통 변수
+# ─────────────────────────────────────────────────────────────────────────
+B = 2           # 배치 크기
+T = 12          # 시퀀스 길이
+N = 1370        # 노드 수
+C_traffic = 8   # Queue4+Speed4 채널 수
+C_flag = 1      # 주말/공휴일 플래그 채널 수
 
 # ─────────────────────────────────────────────────────────────────────────
-# STEP 2: 전통적 LSTM 모델 불러와 Forward PASS
+# 1) 전통적 LSTM 모델
 # ─────────────────────────────────────────────────────────────────────────
 from model.lstm_model import BasicLSTM
 
-hidden_dim = 64
-num_layers = 1
-lstm_model = BasicLSTM(num_nodes=N, input_dim=C_in, hidden_dim=hidden_dim, num_layers=num_layers)
+C_lstm = C_traffic + C_flag
+# (B, C_in, T, N)
+x_lstm = torch.randn(B, C_lstm, T, N)
+
+lstm_model = BasicLSTM(num_nodes=N, input_dim=C_traffic)
 lstm_model.eval()
-
 with torch.no_grad():
-    y_pred_lstm = lstm_model(x_rand)  # (B, N, 8)
-
-print("LSTM Forward PASS 성공!")
-print(f"  입력 x_rand shape: {x_rand.shape} → 출력 y_pred_lstm shape: {y_pred_lstm.shape}")
-#   예상 출력: (2, 1370, 8)
+    y_lstm = lstm_model(x_lstm)
+print("BasicLSTM Forward PASS 성공!  출력 shape:", y_lstm.shape)  # 예상: (B, 8, N)
 
 # ─────────────────────────────────────────────────────────────────────────
-# (비교를 위해) ST‐GCN, 우리 모델도 순서대로 체크 (다음 섹션 참조)
+# 2) 원본 ST-GCN 모델
 # ─────────────────────────────────────────────────────────────────────────
-try:
-    from model.stgcn_model import STGCN
-    # ST‐GCN 입력 shape: (B, C, T, N) ; C=9 채널(큐+스피드+weekend) 등
-    C_stgcn = 9
-    x_stgcn = torch.randn(B, C_stgcn, T, N)
-    # 인접행렬 A 임시: 단위행렬(N,N)
-    A_dummy = torch.eye(N)
-    stgcn_model = STGCN(in_channels=C_stgcn, out_channels=8, num_nodes=N, A=A_dummy)
-    with torch.no_grad():
-        y_pred_stgcn = stgcn_model(x_stgcn)
-    print("ST‐GCN Forward PASS 성공!")
-    print(f"  입력 x_stgcn shape: {x_stgcn.shape} → 출력 y_pred_stgcn shape: {y_pred_stgcn.shape}")
-    # 예상 출력: (2, 8, 1370)
-except Exception as e:
-    print("ST‐GCN Forward PASS 오류:", e)
+from model.stgcn_model import STGCN
 
-try:
-    from model.res_stgcn_model import ResSTGCN
-    # ResSTGCN 입력: (B, C, T, N) ; C=9 채널
-    x_res = x_stgcn.clone()
-    res_model = ResSTGCN(in_channels=C_stgcn, out_channels=8, num_nodes=N, A=A_dummy)
-    with torch.no_grad():
-        y_pred_res = res_model(x_res)
-    print("우리 모델(Res+ST‐GCN) Forward PASS 성공!")
-    print(f"  입력 x_res shape: {x_res.shape} → 출력 y_pred_res shape: {y_pred_res.shape}")
-    # 예상 출력: (2, 8, 1370)
-except Exception as e:
-    print("우리 모델 Forward PASS 오류:", e)
+C_stgcn = C_traffic + C_flag
+x_stgcn = torch.randn(B, C_stgcn, T, N)
+A_dummy = torch.eye(N)
+
+stgcn_model = STGCN(
+        in_channels=C_stgcn,
+        hidden1=64,
+        out_channels=C_traffic,
+        num_nodes=N,
+        A=A_dummy
+    )
+stgcn_model.eval()
+with torch.no_grad():
+    y_stgcn = stgcn_model(x_stgcn)
+print("ST-GCN Forward PASS 성공!  출력 shape:", y_stgcn.shape)  # 예상: (B, 8, N)
+
+# ─────────────────────────────────────────────────────────────────────────
+# 3) Gated Fusion ST-GCN 모델
+# ─────────────────────────────────────────────────────────────────────────
+from model.gated_fusion_stgcn import GatedFusionSTGCN
+
+C_gated = C_traffic + C_flag
+x_gated = torch.randn(B, C_gated, T, N)
+holiday_flag = torch.randint(0, 2, (B,))
+ema_r = torch.randn(B, T, C_traffic, N)
+
+gated_model = GatedFusionSTGCN(
+    in_channels=C_gated,
+    hidden1=64,
+    hidden2=32,
+    out_channels=C_traffic,
+    num_nodes=N,
+    A=A_dummy
+)
+gated_model.eval()
+with torch.no_grad():
+    # GatedFusionSTGCN.forward()는 ema_r 인자를 받지 않으므로, 
+        # 주말 플래그만 넘겨 호출합니다.
+        # LongTensor → FloatTensor 변환
+        y_gated = gated_model(x_gated, holiday_flag.float())
+print("GatedFusionSTGCN Forward PASS 성공!  출력 shape:", y_gated.shape)  # 예상: (B, 8, N)
+
+# ─────────────────────────────────────────────────────────────────────────
+# 4) Pooled Residual ST-GCN 모델
+# ─────────────────────────────────────────────────────────────────────────
+from model.pooled_residual_stgcn import PooledResSTGCN
+
+C_pool = C_traffic + C_flag
+x_pool = torch.randn(B, C_pool, T, N)
+cluster_id = torch.zeros(N, dtype=torch.long)
+
+pooled_model = PooledResSTGCN(
+    in_c=C_pool,
+    out_c=C_traffic,
+    num_nodes=N,
+    A=A_dummy,
+    cluster_id=cluster_id
+)
+pooled_model.eval()
+with torch.no_grad():
+    y_pooled = pooled_model(x_pool, ema_r=ema_r, weekend_flag=holiday_flag)
+print("PooledResSTGCN Forward PASS 성공!  출력 shape:", y_pooled.shape)  # 예상: (B, 8, N)

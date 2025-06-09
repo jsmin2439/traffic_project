@@ -16,7 +16,7 @@ from model.stgcn_model import STGCNLayer
 class STGCNBackbone(nn.Module):
     """
     ST-GCN Backbone 모듈
-    - 입력: 과거 T=12 스텝의 9채널 시계열 (queue4 + speed4 + weekend_flag)
+    - 입력: 과거 T=12 스텝의 9채널 시계열 (queue4 + speed4 + holiday_flag)
       shape = (B, in_channels, T, N)
     - 출력: 시공간 특징 텐서
       shape = (B, hidden1, T, N)
@@ -42,9 +42,9 @@ class STGCNBackbone(nn.Module):
 class PatternLSTM(nn.Module):
     """
     LSTM Branch 모듈
-    - 입력: ST-GCN 특징 및 weekend_flag
+    - 입력: ST-GCN 특징 및 holiday_flag
       Z1 shape = (B, hidden1, T, N)
-      weekend_flag shape = (B,)
+      holiday_flag shape = (B,)
     - 출력: 보정 특징 Z2
       shape = (B, N, hidden2)
     """
@@ -61,11 +61,11 @@ class PatternLSTM(nn.Module):
             bidirectional=False
         )
 
-    def forward(self, Z1: torch.Tensor, weekend_flag: torch.Tensor) -> torch.Tensor:
+    def forward(self, Z1: torch.Tensor, holiday_flag: torch.Tensor) -> torch.Tensor:
         B, hidden1, T, N = Z1.shape
         # (B, hidden1, T, N) -> (B*N, T, hidden1)
         seq = Z1.permute(0, 3, 2, 1).reshape(B * N, T, hidden1)
-        wf = weekend_flag.view(B, 1).expand(B, N).reshape(B * N, 1)
+        wf = holiday_flag.view(B, 1).expand(B, N).reshape(B * N, 1)
         wf_seq = wf.unsqueeze(1).expand(B * N, T, 1)
         lstm_in = torch.cat([seq, wf_seq], dim=2)  # (B*N, T, hidden1+1)
         out, _ = self.lstm(lstm_in)                # (B*N, T, hidden2)
@@ -76,9 +76,9 @@ class PatternLSTM(nn.Module):
 class PatternTCN(nn.Module):
     """
     TCN Branch (경량화)
-    - 입력: ST-GCN 특징 및 weekend_flag
+    - 입력: ST-GCN 특징 및 holiday_flag
       Z1 shape = (B, hidden1, T, N)
-      weekend_flag shape = (B,)
+      holiday_flag shape = (B,)
     - 출력: 보정 특징 Z2
       shape = (B, N, hidden2)
     """
@@ -92,10 +92,10 @@ class PatternTCN(nn.Module):
             padding=(1, 0)
         )
 
-    def forward(self, Z1: torch.Tensor, weekend_flag: torch.Tensor) -> torch.Tensor:
+    def forward(self, Z1: torch.Tensor, holiday_flag: torch.Tensor) -> torch.Tensor:
         B, hidden1, T, N = Z1.shape
-        # weekend_flag → (B,1,T,N)
-        wf = weekend_flag.view(B, 1, 1, 1).expand(B, 1, T, N)
+        # holiday_flag → (B,1,T,N)
+        wf = holiday_flag.view(B, 1, 1, 1).expand(B, 1, T, N)
         # concat along 채널: (B, hidden1+1, T, N)
         x = torch.cat([Z1, wf], dim=1)
         # conv → (B, hidden2, T, N)
@@ -153,7 +153,7 @@ class GatedFusionSTGCN(nn.Module):
         # 예측 스텝 주기 (초)
         self.pred_interval = 5 * 60  # 5분
 
-    def forward(self, x: torch.Tensor, weekend_flag: torch.Tensor) -> torch.Tensor:
+    def forward(self, x: torch.Tensor, holiday_flag: torch.Tensor) -> torch.Tensor:
         B, C, T, N = x.shape
         # 1) 시공간 특징
         Z1 = self.backbone(x)                       # (B, hidden1, T, N)
@@ -161,9 +161,9 @@ class GatedFusionSTGCN(nn.Module):
         Z1_pool = Z1.mean(dim=2)                    # (B, hidden1, N)
         Z1_pool_t = Z1_pool.permute(0, 2, 1)         # (B, N, hidden1)
         # 3) Temporal Branch
-        Z2 = self.temp_branch(Z1, weekend_flag)     # (B, N, hidden2)
+        Z2 = self.temp_branch(Z1, holiday_flag)     # (B, N, hidden2)
         # 4) 성장 플래그 임베딩
-        wf = weekend_flag.view(B, 1)
+        wf = holiday_flag.view(B, 1)
         E_wd = self.wd_lin(wf).unsqueeze(1).expand(B, N, -1)
         # 5) Gated Fusion
         cat = torch.cat([Z1_pool_t, Z2, E_wd], dim=2)      # (B,N,*)

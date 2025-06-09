@@ -16,21 +16,35 @@ def predict(model, x_batch, model_type, device, weekend_flag=None):
     # 2) AMP 자동 캐스트
     with amp.autocast(device_type="cuda"):
         if model_type == 'lstm':
-            x_in = x_batch[:, :8].permute(0,2,3,1).contiguous()  # (B,12,1370,8)
-            out  = model(x_in).permute(0,2,1)                    # (B,8,1370)
+            # model(x_batch) -> (B,8,N)
+            out = model(x_batch)
+            # (B,8,N) -> (B,N,8)
+            out = out.permute(0, 2, 1)
 
         elif model_type == 'stgcn':
-            out = model(x_batch)                                 # (B,8,1370)
+            # model(x_batch) -> (B,8,N)
+            out = model(x_batch)
+            # (B,8,N) -> (B,N,8)
+            out = out.permute(0, 2, 1)
 
         elif model_type == 'resstgcn':
-            out = model.inference(x_batch, weekend_flag)         # (B,8,1370)
+            # model.inference -> (B,8,N)
+            out = model.inference(x_batch, weekend_flag)
+            # (B,8,N) -> (B,N,8)
+            out = out.permute(0, 2, 1)
 
         elif model_type == 'gated':
-            # Gated-Fusion 모델은 forward(x, weekend_flag) 호출
-            out = model(x_batch, weekend_flag)                   # (B,8,1370)
+            # model(x_batch, weekend_flag) -> (B,8,N)
+            out = model(x_batch, weekend_flag)
+            # (B,8,N) -> (B,N,8)
+            out = out.permute(0, 2, 1)
 
         else:
             raise ValueError(f"Unknown model_type: {model_type}")
 
-    # 3) numpy로 변환 (B,8,1370) -> transpose -> (B,1370,8)
-    return out.detach().cpu().numpy().transpose(0,2,1)
+    # 3) numpy 변환 & shape 통일: always (B,1370,8)
+    out_np = out.detach().cpu().numpy()
+    # 만약 채널축이 두 번째(8)라면 transpose
+    if out_np.shape[1] == 8:
+        out_np = out_np.transpose(0, 2, 1)
+    return out_np

@@ -16,7 +16,7 @@ import torch.nn as nn
 class BasicLSTM(nn.Module):
     """
     전통적 LSTM 모델:
-    - 입력 채널: Queue4+Speed4(8채널) + WeekendFlag(1채널) = 9채널
+    - 입력 채널: Queue4+Speed4(8채널) + holiday_flag(1채널) = 9채널
     - 과거 T=12 스텝의 시계열을 LSTM으로 처리하여, 마지막 타임스텝 hidden state를 FC로 변환
     - 모든 노드에 동일한 LSTM 가중치를 공유
     - 예측: 다음 스텝의 Queue4+Speed4 (8채널)
@@ -54,12 +54,12 @@ class BasicLSTM(nn.Module):
         # FC: 마지막 hidden -> 8채널 예측
         self.fc = nn.Linear(self.hidden_dim, self.input_dim)
 
-    def forward(self, x: torch.Tensor, weekend_flag: torch.Tensor = None) -> torch.Tensor:
+    def forward(self, x: torch.Tensor, holiday_flag: torch.Tensor = None) -> torch.Tensor:
         """
         Args:
             x (torch.Tensor): 입력 텐서, shape=(B,9,12,N)
-              - 채널 0~7: Queue+Speed, 채널 8: weekend_flag
-            weekend_flag: 사용하지 않음(호환성 유지)
+              - 채널 0~7: Queue+Speed, 채널 8: holiday_flag
+            holiday_flag: 사용하지 않음(호환성 유지)
 
         Returns:
             y_hat (torch.Tensor): 예측값, shape=(B,8,N)

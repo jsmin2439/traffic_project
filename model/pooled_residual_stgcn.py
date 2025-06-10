@@ -145,7 +145,7 @@ class PooledResSTGCN(nn.Module):
         cluster_id: torch.Tensor,
         K: int = 32,
         hidden_lstm: int = 64,
-        horizon: int = 3
+        horizon: int = 1
     ):
         super().__init__()
         assert cluster_id.numel() == num_nodes, "cluster_id 길이가 num_nodes와 달라요"

@@ -59,18 +59,20 @@ class STGCN(nn.Module):
         hidden1: int,
         out_channels: int,
         num_nodes: int,
-        A: torch.Tensor
+        A: torch.Tensor,
+        horizon: int = 1
     ):
         super().__init__()
         self.num_nodes = num_nodes
+        self.horizon = horizon
         # STGCNLayer 1: in_channels → hidden1
         self.layer1 = STGCNLayer(in_channels, hidden1, A, t_kernel=3)
         # STGCNLayer 2: hidden1 → hidden1
         self.layer2 = STGCNLayer(hidden1, hidden1, A, t_kernel=3)
-        # 마지막 Conv: (hidden1, T, N) → (out_channels, 1, N)
+        # 마지막 Conv: (hidden1, T, N) → (out_channels*horizon, 1, N)
         self.final_conv = nn.Conv2d(
             hidden1,
-            out_channels,
+            out_channels * horizon,
             kernel_size=(12,1),
             bias=True
         )
@@ -79,5 +81,7 @@ class STGCN(nn.Module):
         assert T == 12 and N == self.num_nodes, f"입력 크기 오류: {x.shape}"
         h = self.layer1(x)            # (B, hidden1, 12, N)
         h = self.layer2(h)            # (B, hidden1, 12, N)
-        out = self.final_conv(h)      # (B, out_channels, 1, N)
-        return out.squeeze(2)         # (B, out_channels, N)
+        out = self.final_conv(h)               # (B, out_c*horizon, 1, N)
+        B, _, _, N = out.shape
+        out = out.view(B, -1, self.horizon, N) # (B, out_channels, horizon, N)
+        return out

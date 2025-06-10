@@ -89,7 +89,14 @@ criterion = nn.MSELoss()
 
 # 1) Baseline: ST-GCN only
 def train_baseline():
-    model = STGCN(in_channels=9, hidden1=64, out_channels=8, num_nodes=num_nodes, A=A, horizon=args.horizon).to(device)
+    model = STGCN(
+        in_channels=9,
+        hidden1=64,
+        out_channels=8,
+        num_nodes=num_nodes,
+        A=A,
+        horizon=args.horizon
+    ).to(device)
     optimizer = optim.Adam(model.parameters(), lr=lr_baseline, weight_decay=1e-4)
     scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, 'min', factor=0.5, patience=5)
     train_losses, val_losses = [], []
@@ -97,10 +104,15 @@ def train_baseline():
         model.train()
         t_loss = 0
         pbar = tqdm(train_loader, desc=f"[baseline] Train Ep{ep}", ncols=80)
-        for x,y_true,idx,date in pbar:
-            x,y_true = x.to(device), y_true.to(device)
+        # DataLoader가 (x, y_last, y_seq, idx, date) 를 반환하므로 y_seq를 unpack
+        for x, y_last, y_seq, idx, date in pbar:
+            x = x.to(device)
+            # y_seq: (B, T=12, C=8, N) → 처음 H 스텝만 정답으로 사용
+            y_true = y_seq[:, :args.horizon, :, :].to(device)  # (B, H, C, N)
             optimizer.zero_grad()
+            # 모델 출력: (B, C, H, N)
             y_hat = model(x)
+            # (B, C, H, N) → (B, H, C, N) 로 맞춰서 loss 계산
             y_hat = y_hat.permute(0, 2, 1, 3)
             loss = criterion(y_hat, y_true)
             loss.backward()
@@ -115,8 +127,9 @@ def train_baseline():
         model.eval()
         v_loss = 0
         pbar = tqdm(val_loader, desc=f"[baseline] Val   Ep{ep}", ncols=80)
-        for x,y_true,idx,date in pbar:
-            x,y_true = x.to(device), y_true.to(device)
+        for x, y_last, y_seq, idx, date in pbar:
+            x = x.to(device)
+            y_true = y_seq[:, :args.horizon, :, :].to(device)
             y_hat = model(x)
             y_hat = y_hat.permute(0, 2, 1, 3)
             loss = criterion(y_hat, y_true)

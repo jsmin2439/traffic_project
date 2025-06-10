@@ -55,15 +55,18 @@ def train_one_epoch(model, loader, criterion, optimizer, model_name, epoch):
         x, y = x.to(DEVICE), y.to(DEVICE)
         weekend = x[:, -1, 0, 0]
         optimizer.zero_grad()
-        if model_name in ['lstm', 'stgcn']:
-            y_hat = model(x)
+        if model_name == 'lstm':
+            y_hat = model(x)  # y_hat: (B, 8, N)
+        elif model_name == 'stgcn':
+            # ST-GCN outputs (B, 8, 1, N), squeeze time dimension for one-step prediction
+            y_hat = model(x).squeeze(2)  # (B, 8, N)
         elif model_name == 'gated':
             # Positional arg for weekend_flag
             y_hat = model(x, weekend.float())
         else:
-            # pooled: positional args (ema_r, weekend_flag)
+            # pooled: one-step forecast
             ema_r = y.unsqueeze(1)
-            y_hat = model(x, ema_r, weekend.float())
+            y_hat = model(x, ema_r, weekend.float()).squeeze(2)
         loss = criterion(y_hat, y)
         loss.backward()
         if CLIP_NORM > 0:
@@ -85,13 +88,15 @@ def evaluate(model, loader, criterion, model_name):
     for x, y, idx, date in tqdm(loader, desc=f"[{model_name}] Val", ncols=80):
         x, y = x.to(DEVICE), y.to(DEVICE)
         weekend = x[:, -1, 0, 0]
-        if model_name in ['lstm', 'stgcn']:
+        if model_name == 'lstm':
             y_hat = model(x)
+        elif model_name == 'stgcn':
+            y_hat = model(x).squeeze(2)
         elif model_name == 'gated':
             y_hat = model(x, weekend.float())
         else:
             ema_r = y.unsqueeze(1)
-            y_hat = model(x, y_true=ema_r, weekend_flag=weekend.float())
+            y_hat = model(x, y_true=ema_r, weekend_flag=weekend.float()).squeeze(2)
         total_loss += criterion(y_hat, y).item()
     return total_loss / len(loader)
 
@@ -111,7 +116,7 @@ def build_model(name, num_nodes, A):
                                 out_channels=8,
                                 num_nodes=num_nodes,
                                 A=A).to(DEVICE)
-    # pooled
+    # pooled (one-step forecast)
     cluster_id = torch.zeros(num_nodes, dtype=torch.long)
     return PooledResSTGCN(
         in_c=9,
@@ -120,7 +125,8 @@ def build_model(name, num_nodes, A):
         A=A,
         cluster_id=cluster_id,
         K=p['hidden1'],
-        hidden_lstm=p['hidden2']
+        hidden_lstm=p['hidden2'],
+        horizon=1                # ← 여기만 1로 바꿔주세요
     ).to(DEVICE)
 
 

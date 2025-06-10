@@ -13,8 +13,9 @@ checkpoints_lstm/
 checkpoints_resstgcn/
 checkpoints_stgcn/
 
-기타.zip
-compare_results.zip
+ck_lstm/
+ck_pooled/
+ck_stgcn/
 
 # Created by https://www.toptal.com/developers/gitignore/api/macos
 # Edit at https://www.toptal.com/developers/gitignore?templates=macos

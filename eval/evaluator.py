@@ -67,7 +67,8 @@ cfg 예시 (eval_config.yaml):
         ckpt = torch.load(ckpt_path, map_location=device)
 
         if mtype == 'lstm':
-            hidden_dim = cfg.get('hidden2', 64)
+            state = ckpt['model_state']
+            hidden_dim = state['fc.weight'].shape[1]
             m = BasicLSTM(num_nodes=1370, input_dim=8, hidden_dim=hidden_dim)
             m.load_state_dict(ckpt['model_state'])
             m = m.to(device).eval()

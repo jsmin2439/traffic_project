@@ -39,6 +39,14 @@ def predict(model, x_batch, model_type, device, weekend_flag=None):
             # (B,8,N) -> (B,N,8)
             out = out.permute(0, 2, 1)
 
+        elif model_type == 'pooled':
+            horizon = getattr(model, 'horizon', 1)
+            # residual sequence: first `horizon` steps of traffic channels
+            res_seq = x_batch[:, :8, :, :].permute(0, 2, 1, 3)[:, :horizon]
+            out = model(x_batch, residual_seq=res_seq)
+            out = out[:, :, 0, :]  # first step
+            out = out.permute(0, 2, 1)
+
         else:
             raise ValueError(f"Unknown model_type: {model_type}")
 

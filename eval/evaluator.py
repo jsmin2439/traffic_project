@@ -3,9 +3,9 @@
 """
 eval/evaluator.py
 
-세 가지 모델(LSTM-only, ST-GCN, Gated-Fusion) 평가 스크립트
-- Gated-Fusion 모델 지원 추가
-- cfg에 'gated' 체크포인트 및 하이퍼파라미터(hidden1, hidden2, use_tcn) 필수
+세 가지 모델(LSTM-only, ST-GCN, Pooled Residual ST-GCN) 평가 스크립트
+Pooled 모델을 위해 cfg에 'pooled' 체크포인트와 cluster_map, hidden_lstm 값을
+제공해야 합니다.
 """
 import os
 import sys
@@ -29,6 +29,7 @@ from eval.infer import predict
 from model.lstm_model import BasicLSTM
 from model.stgcn_model import STGCN
 from model.gated_fusion_stgcn import GatedFusionSTGCN
+from model.pooled_residual_stgcn import PooledResSTGCN
 
 def evaluate(cfg: dict):
     """
@@ -68,7 +69,7 @@ cfg 예시 (eval_config.yaml):
         if mtype == 'lstm':
             hidden_dim = cfg.get('hidden2', 64)
             m = BasicLSTM(num_nodes=1370, input_dim=8, hidden_dim=hidden_dim)
-            m.load_state_dict(ckpt['model_state_dict'])
+            m.load_state_dict(ckpt['model_state'])
             m = m.to(device).eval()
             m = torch.jit.script(m)
         elif mtype == 'stgcn':
@@ -87,7 +88,7 @@ cfg 예시 (eval_config.yaml):
                 num_nodes=A_cpu.shape[0],
                 A=torch.from_numpy(A_cpu).float()
             )
-            m.load_state_dict(ckpt['model_state_dict'])
+            m.load_state_dict(ckpt['model_state'])
             m = m.to(device).eval()
             m = torch.jit.script(m)
             # 모델 내 A 속성에 GPU Tensor 덮어쓰기
@@ -106,11 +107,35 @@ cfg 예시 (eval_config.yaml):
                 A=torch.from_numpy(A_cpu).float(),
                 use_tcn=cfg.get('use_tcn', False)
             )
-            m.load_state_dict(ckpt['model_state_dict'])
+            m.load_state_dict(ckpt['model_state'])
             m = m.to(device)
             for sub in m.modules():
                 if hasattr(sub, 'A'):
                     sub.A = A_cuda
+        elif mtype == 'pooled':
+            A_cpu = np.load(os.path.join(cfg['tensor_dir'], 'adjacency', 'A_lane.npy'))
+            cluster_np = np.load(cfg['cluster_map'])
+            cluster_id = torch.from_numpy(cluster_np).long()
+            K = int(cluster_np.max()) + 1
+            m = PooledResSTGCN(
+                in_c=8,
+                out_c=8,
+                num_nodes=A_cpu.shape[0],
+                A=torch.from_numpy(A_cpu).float(),
+                cluster_id=cluster_id,
+                K=K,
+                hidden_lstm=cfg.get('hidden_lstm', 256),
+                horizon=1,
+            )
+            m.load_state_dict(ckpt['model_state'])
+            m = m.to(device)
+            # ensure adjacency tensor on device
+            for sub in m.modules():
+                if hasattr(sub, 'A'):
+                    sub.A = torch.from_numpy(A_cpu).float().to(device)
+            m.eval()
+            m = torch.jit.script(m)
+            return m
         else:
             raise ValueError(f"Unknown model type: {mtype}")
 
@@ -120,7 +145,8 @@ cfg 예시 (eval_config.yaml):
 
     # 3) 모든 모델 로드
     models = {}
-    for key in ['lstm','stgcn','gated']:
+    model_keys = list(cfg['ckpt'].keys())
+    for key in model_keys:
         print(f"▶ Loading {key.upper()}...")
         models[key] = load_single(key)
         # A-device 확인

@@ -54,3 +54,8 @@ Temporary Items
 *.icloud
 
 # End of https://www.toptal.com/developers/gitignore/api/macos
+src/.DS_Store
+src/adjacency/.DS_Store
+.gitignore
+.DS_Store
+.gitignore
